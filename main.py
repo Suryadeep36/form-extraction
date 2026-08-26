@@ -1,22 +1,22 @@
 import os
-import json
 import shutil
 import tempfile
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from groq import Groq
 from fastapi.middleware.cors import CORSMiddleware
 
-from utils import (
+from service.document_service import (
     analyze_document,
-    build_structure_prompt,
-    resolve_structure,
-    validate_extraction,
+    interpret_document
+)
+from service.structure_service import (
+    resolve_structure
+)
+from service.validation_service import (
+    validate_extraction
 )
 
 
-load_dotenv()
 
 
 app = FastAPI(
@@ -34,23 +34,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# ---------------------------------------------------------
-# Groq client
-# ---------------------------------------------------------
-
-groq_api_key = os.getenv("GROQ_API_KEY")
-
-if not groq_api_key:
-    raise RuntimeError(
-        "GROQ_API_KEY environment variable is not set."
-    )
-
-groq_client = Groq(
-    api_key=groq_api_key
-)
-
-
 # ---------------------------------------------------------
 # Health check
 # ---------------------------------------------------------
@@ -61,73 +44,6 @@ def health_check():
         "status": "ok",
         "service": "Document Extraction API"
     }
-
-
-# ---------------------------------------------------------
-# LLM semantic interpretation (Pass 1 - structure)
-#
-# The LLM returns element/region/checkbox IDs only. Geometry is always
-# resolved deterministically from the OCR/CV representation.
-# ---------------------------------------------------------
-
-def interpret_document(doc_rep, candidates):
-    prompt = build_structure_prompt(doc_rep, candidates)
-    print(prompt)
-    completion = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a document understanding system. "
-                    "You interpret relationships and return JSON "
-                    "referencing only the IDs you are given. "
-                    "Never invent coordinates or IDs."
-                )
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-
-        temperature=0,
-
-        response_format={
-            "type": "json_object"
-        }
-    )
-
-    llm_output = (
-        completion
-        .choices[0]
-        .message
-        .content
-    )
-
-    print(
-        f"Tokens: "
-        f"{completion.usage.prompt_tokens} input + "
-        f"{completion.usage.completion_tokens} output = "
-        f"{completion.usage.total_tokens} total"
-    )
-
-    if not llm_output:
-        raise HTTPException(
-            status_code=500,
-            detail="LLM returned an empty response."
-        )
-
-    try:
-        return json.loads(llm_output)
-    except json.JSONDecodeError as e:
-        print("Invalid JSON returned by LLM:")
-        print(llm_output)
-        raise HTTPException(
-            status_code=500,
-            detail="LLM returned invalid JSON: " + str(e)
-        )
 
 
 # ---------------------------------------------------------
@@ -216,7 +132,7 @@ async def extract_document(
         # 4. LLM semantic interpretation (IDs only)
         # -------------------------------------------------
 
-        print("Sending document to Groq...")
+        print("Sending document to Gemini...")
 
         llm_data = interpret_document(doc_rep, candidates)
 
