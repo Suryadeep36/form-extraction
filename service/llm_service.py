@@ -6,7 +6,9 @@ from util.llm_utils import (
   _format_regions_for_prompt,
   _format_candidates_for_prompt,
   _format_checkboxes_for_prompt,
-  _format_elements_for_prompt
+  _format_elements_for_prompt,
+  _format_fields_for_prompt,
+  _format_tables_for_prompt
 )
 
 from service.gemini_service import (
@@ -18,11 +20,14 @@ def build_structure_prompt(doc_rep, candidates):
     regions_repr = _format_regions_for_prompt(doc_rep)
     checkboxes_repr = _format_checkboxes_for_prompt(doc_rep)
     candidates_repr = _format_candidates_for_prompt(candidates)
+    fields_repr = _format_fields_for_prompt(doc_rep)
+    tables_repr = _format_tables_for_prompt(doc_rep)
 
     return f"""
 You are a document understanding system. You are given OCR text, bounding
-boxes, detected regions, checkboxes and candidate relationships from a
-physical form. The form may belong to ANY domain.
+boxes, detected regions, checkboxes, candidate relationships, geometric
+fields and cv-detected table structures from a physical form. The form may
+belong to ANY domain.
 
 YOUR ROLE
 =========
@@ -46,11 +51,25 @@ REGIONS (bordered boxes detected by computer vision)
 {regions_repr}
 
 CHECKBOXES (cv-determined state)
--------------------------------
+------------------------------
 {checkboxes_repr}
 
+FIELDS (cv-detected input regions with geometric label->value binding)
+---------------------------------------------------------------------
+These were derived purely from geometry (text near an underline/box/gap).
+The label/value often reads only partially correctly (a merged or missing
+word) and the element ids are YOUR ground truth to confirm or correct.
+{fields_repr}
+
+TABLES (cv/model-detected with OCR already assigned to cells)
+-------------------------------------------------------------
+Cells are listed by row/column with their text. You never rebuild tables;
+you confirm them with a `table` relationship referencing the table's
+covering region (see REGIONS).
+{tables_repr}
+
 CANDIDATE LABEL->VALUE RELATIONSHIPS (geometric scoring)
--------------------------------------------------------
+------------------------------------------------------
 {candidates_repr}
 
 TASK
@@ -70,41 +89,65 @@ TASK
    Decide relationships between elements using text content, spatial layout
    and the candidate list. Supported types:
 
-   - "label_value":
-       label_id: the label element (single id).
-       value_ids: one or more elements that form the value.
-     A value is usually immediately to the right of its label on the same
-     row, or directly below it. Use the geometric candidates as a guide but
-     do not blindly trust them.
-     If the label element ALREADY contains the answer (e.g. "AGE: 21"),
-     still create a label_value relationship, but you may leave value_ids
-     empty -- the system will split the text.
-     Do NOT confuse instructions, headings, or unrelated text with values.
-     IMPORTANT: value_ids must contain ONLY the text that is the actual
-     value. Never include neighboring option labels, instructions, or other
-     fields' content.
+- "label_value":
+        label_id: the label element (single id).
+        value_ids: one or more elements that form the value.
+      A value is usually immediately to the right of its label on the same
+      row, or directly below it. Use the geometric candidates as a guide but
+      do not blindly trust them.
+      If a FIELDS entry already binds the same label_id/value_ids, confirm it
+      by emitting the label_value relationship with those exact ids -- do not
+      reword the label or reorder the value ids.
+      If the label element ALREADY contains the answer (e.g. "AGE: 21"),
+      still create a label_value relationship, but you may leave value_ids
+      empty -- the system will split the text.
+      Do NOT confuse instructions, headings, or unrelated text with values.
+      IMPORTANT: value_ids must contain ONLY the text that is the actual
+      value. Never include neighboring option labels, instructions, or other
+      fields' content.
 
    - "question":
        question_id: the question text element (single id).
        answer_id: the element containing the chosen answer/option (or null
                   if no answer is visible).
        option_ids: the elements that are the possible options for this
-                   question (e.g. "YES ...", "NO ...").
+                   question (e.g. "YES ...", "NO ...", or the rows under a
+                   group).
+       multi_select: true only if the question is a "check all that apply"
+                   style question where MULTIPLE options can be selected at
+                   once (e.g. "verified by (x all that apply)"). Otherwise
+                   false or omit (means choose one).
      Use this when a label is a QUESTION whose possible answers are nearby
      options (often paired with checkboxes). Do NOT use "label_value" for
      such questions, and never stuff the options into a label_value value.
+     IMPORTANT - INSTRUCTION TEXT: option elements frequently begin with the
+     question's instruction glued after the option word, e.g. the element
+     "YES If YES, check one below" is the OPTION "YES" followed by the
+     instruction "If YES, check one below". When you emit an option that
+     contains such an embedded instruction, DO NOT copy the whole string as
+     the option label. Set the option's "instruction" field (see below) to
+     that trailing text and the option label to just the option word(s).
+     The element ids still point at the OCR element; the text is split by
+     the system using geometry, but you are expected to identify which part
+     is the option vs. the instruction.
 
    - "checkbox_option":
        checkbox_id: a checkbox element.
        label_id: the text element that is the label/option for this checkbox
                  (usually immediately to the right of the checkbox).
        checked: the selected state (true/false). If the cv state is
-                "uncertain", decide from the ink or leave as the cv value.
+                "uncertain", decide from the mark/ink or leave as the cv value.
+       instruction: optional. When the option's text contains the question's
+                 instruction glued onto it (e.g. "YES If YES, check one
+                 below"), put the trailing instruction here and set
+                 label_id to the option's element.
      Never attach instructional text to a checkbox label.
 
    - "table":
        region_id: a region that is a table.
        has_header: true if the first row is a header row.
+     A TABLES entry with geometry under the same region means the cell grid
+     is already correct -- you only decide has_header (first row is a header)
 
 3. UNASSIGNED TEXT
    If some element is truly irrelevant (watermark, page number, logo text),
@@ -144,13 +187,15 @@ OUTPUT FORMAT (JSON only)
       "type": "checkbox_option",
       "checkbox_id": "c000",
       "label_id": "t002",
-      "checked": true
+      "checked": true,
+      "instruction": "If YES, check one below"
     }},
     {{
       "type": "question",
       "question_id": "t004",
       "answer_id": "t005",
-      "option_ids": ["t005", "t006"]
+      "option_ids": ["t005", "t006"],
+      "multi_select": false
     }},
     {{
       "type": "table",

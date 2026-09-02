@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import json
+import base64
 from fastapi import HTTPException
 from service.candidate_field_service import (
     generate_field_candidates
@@ -27,12 +28,30 @@ from service.detection_service import (
     detect_horizontal_lines,
     detect_vertical_lines,
     detect_checkboxes,
+    detect_checkboxes_ocr_anchored,
     detect_rectangular_regions
+)
+from util.checkbox_utils import (
+    strip_leading_option_mark,
+)
+from service.field_service import (
+    process_form_fields
+)
+from service.table_service import (
+    detect_and_fuse_tables,
+    finalize_tables,
+)
+from util.perspective_utils import (
+    correct_perspective,
 )
 
 def build_document_representation(image, image_path=None):
     """
     Run OCR + layout analysis and assemble the internal document graph.
+
+    The image is assumed to be already preprocessed (perspective-corrected,
+    oriented, deskewed). All coordinates produced here live in this processed
+    image's coordinate system.
 
     Returns:
         {
@@ -45,7 +64,11 @@ def build_document_representation(image, image_path=None):
             "lines": {
                 "horizontal": [...],
                 "vertical": [...]
-            }
+            },
+            "fields": [...],     # first-class form fields
+            "tables": [...],     # first-class tables with cells
+            "input_regions": [...],
+            "preprocessing": {...},
         }
     """
     if isinstance(image, np.ndarray):
@@ -55,13 +78,42 @@ def build_document_representation(image, image_path=None):
         image_height, image_width = loaded.shape[:2]
         image = loaded
 
-    print("Running PaddleOCR...")
+    print("[OCR] Running PaddleOCR...")
     raw_elements = get_ocr_data(image)
-    print(f"OCR items: {len(raw_elements)}")
+    print(f"[OCR] Elements: {len(raw_elements)}")
 
-    print("Normalizing compound OCR elements (Pass 1)...")
-    elements = normalize_ocr_elements(raw_elements)
-    print(f"Normalized OCR items: {len(elements)}")
+    print("Detecting checkboxes...")
+    # NOTE: detect on pre-strip texts so the OCR leading-mark signal can see
+    # the original selection marks ("XPartially Boatable", "_NO IfNO...").
+    checkboxes = detect_checkboxes_ocr_anchored(image, raw_elements)
+    print(f"Checkboxes: {len(checkboxes)}")
+
+    # Strip selection-mark glyphs that OCR glued onto the front of option
+    # labels (e.g. "XPartially Boatable" -> "Partially Boatable").
+    # Guards keep legitimate leading tokens ("X Latitude North") intact.
+    for element in raw_elements:
+        text = element.get("text") or ""
+        cleaned, _changed = strip_leading_option_mark(text)
+        if _changed:
+            element["text"] = cleaned
+        for w in element.get("words") or []:
+            wtext = w.get("text") or ""
+            cw, cchanged = strip_leading_option_mark(wtext)
+            if cchanged:
+                w["text"] = cw
+
+    # ---- Tables stage 1: detect + fuse (bbox-only) -----------------------
+    fused, cv_candidates = detect_and_fuse_tables(image, raw_elements)
+    table_bboxes = [t["bbox"] for t in fused]
+
+    # ---- Form fields (input regions + compound splitting) ----------------
+    fields, input_regions, elements = process_form_fields(
+        image,
+        raw_elements,
+        table_bboxes=table_bboxes,
+        checkboxes=checkboxes,
+    )
+    print(f"[OCR] Final elements: {len(elements)}")
 
     print("Detecting horizontal lines...")
     horizontal_lines = detect_horizontal_lines(image)
@@ -87,11 +139,7 @@ def build_document_representation(image, image_path=None):
     ]
     print(f"Regions: {len(regions)}")
 
-    print("Detecting checkboxes...")
-    checkboxes = detect_checkboxes(image)
-    print(f"Checkboxes: {len(checkboxes)}")
-
-    return {
+    doc_rep = {
         "image_path": image_path,
         "image_width": image_width,
         "image_height": image_height,
@@ -102,12 +150,30 @@ def build_document_representation(image, image_path=None):
             "horizontal": horizontal_lines,
             "vertical": vertical_lines,
         },
+        "fields": fields,
+        "input_regions": input_regions,
+        "_cv_tables": cv_candidates,
     }
+
+    # ---- Tables stage 2: structure recognition + OCR-to-cell -------------
+    print("[TABLE] Recognizing structure...")
+    tables = finalize_tables(fused, doc_rep, image)
+    doc_rep["tables"] = tables
+
+    # Drop internal-only keys before propagating further.
+    doc_rep.pop("_cv_tables", None)
+
+    return doc_rep
 
 def analyze_document(image_or_path, image_path=None):
     """
     End-to-end: preprocess -> OCR -> layout -> candidates.
     Returns (doc_rep, candidates). The LLM stage lives in main.py.
+
+    `doc_rep` additionally carries `processed_image_data_url`: a base64
+    data URL of the perspective-corrected / oriented / deskewed image that
+    all reported coordinates are normalized against. The frontend must
+    render this image (not the raw upload) so overlay bboxes line up.
     """
     info = preprocess_document(image_or_path)
 
@@ -115,12 +181,22 @@ def analyze_document(image_or_path, image_path=None):
         info["image"],
         image_path=image_path,
     )
-    doc_rep["preprocessing"] = {
-        "orientation_corrected": info["orientation_corrected"],
-        "deskew_angle": info["deskew_angle"],
-    }
+    doc_rep["preprocessing"] = info["preprocessing"]
+
+    try:
+        ok, buf = cv2.imencode(".jpg", info["image"])
+        if ok:
+            b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+            doc_rep["processed_image_data_url"] = (
+                "data:image/jpeg;base64," + b64
+            )
+    except Exception as e:
+        print(f"[PROCESS] corrected-image encode failed: {e}")
 
     candidates = generate_field_candidates(doc_rep)
+
+    from util.debug_utils import write_debug_document
+    write_debug_document(info["image"], doc_rep, image_path or "analyze")
 
     return doc_rep, candidates
 
@@ -130,7 +206,7 @@ def interpret_document(doc_rep, candidates):
     print(prompt)
 
     response = gemini_client.models.generate_content(
-        model="gemini-3.5-flash",
+        model="gemini-3.6-flash",
         contents=[
             {
                 "role": "user",
@@ -177,18 +253,30 @@ def interpret_document(doc_rep, candidates):
 
 def preprocess_document(image_or_path, output_path=None):
     """
-    Correct document orientation and deskew.
+    Prepare the image for OCR/CV.
+
+    Pipeline:
+        1. perspective correction (page-boundary detection + warp)
+        2. orientation correction (content rotation classifier)
+        3. deskew (small-angle rotation)
 
     Returns:
         {
-            "image": ndarray,
+            "image": ndarray,       # in the final corrected coordinate system
             "path": path of the corrected image (or None),
-            "orientation_corrected": int (0, 90, 180, 270),
-            "deskew_angle": float
+            "preprocessing": {
+                "orientation_corrected": int (0, 90, 180, 270),
+                "deskew_angle": float,
+                "perspective_correction": {...},
+            }
         }
     """
     image = _load_image(image_or_path)
 
+    # ---- 1. perspective correction -------------------------------------
+    image, perspective_info = correct_perspective(image)
+
+    # ---- 2. orientation --------------------------------------------------
     orientation = 0
     try:
         result = list(_get_orientation_model().predict(image))
@@ -200,6 +288,7 @@ def preprocess_document(image_or_path, output_path=None):
     except Exception as e:
         print(f"Orientation classification failed: {e}")
 
+    # ---- 3. deskew -------------------------------------------------------
     skew = _estimate_skew(image)
     if abs(skew) >= 0.75:
         image = _rotate_image(image, skew)
@@ -207,8 +296,11 @@ def preprocess_document(image_or_path, output_path=None):
     info = {
         "image": image,
         "path": output_path,
-        "orientation_corrected": orientation,
-        "deskew_angle": round(skew, 3),
+        "preprocessing": {
+            "orientation_corrected": orientation,
+            "deskew_angle": round(skew, 3),
+            "perspective_correction": perspective_info["perspective_correction"],
+        },
     }
 
     if output_path:

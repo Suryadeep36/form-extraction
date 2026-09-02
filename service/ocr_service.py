@@ -13,9 +13,23 @@ from util.geometry_utils import (
     _interpolate_sub_bbox
 )
 
+import util.config as config
+
+
+def _quad_to_bbox(points):
+    xs = [float(p[0]) for p in points]
+    ys = [float(p[1]) for p in points]
+    x1, y1 = min(xs), min(ys)
+    x2, y2 = max(xs), max(ys)
+    return x1, y1, x2, y2
+
+
 def get_ocr_data(image_or_path):
     ocr = _get_ocr_engine()
-    result = ocr.predict(image_or_path)
+    result = ocr.predict(
+        image_or_path,
+        return_word_box=config.OCR_USE_WORD_BOXES,
+    )
 
     if not result:
         return []
@@ -30,6 +44,8 @@ def get_ocr_data(image_or_path):
     dt_polys = data.get("dt_polys", [])
     rec_texts = data.get("rec_texts", [])
     rec_scores = data.get("rec_scores", [])
+    word_texts = data.get("text_word") or []
+    word_regions = data.get("text_word_region") or []
 
     output = []
 
@@ -43,33 +59,43 @@ def get_ocr_data(image_or_path):
         if not text:
             continue
 
-        points = [[float(p[0]), float(p[1])] for p in poly]
-
-        xs = [p[0] for p in points]
-        ys = [p[1] for p in points]
-
-        x1 = min(xs)
-        y1 = min(ys)
-        x2 = max(xs)
-        y2 = max(ys)
+        x1, y1, x2, y2 = _quad_to_bbox(poly)
 
         score = None
 
         if i < len(rec_scores):
             score = float(rec_scores[i])
 
-        output.append(
-            {
-                "id": f"t{i:03d}",
-                "type": "text",
-                "text": text,
-                "bbox": [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)],
-                "center": [round((x1 + x2) / 2, 2), round((y1 + y2) / 2, 2)],
-                "width": round(x2 - x1, 2),
-                "height": round(y2 - y1, 2),
-                "confidence": score,
-            }
-        )
+        element = {
+            "id": f"t{i:03d}",
+            "type": "text",
+            "text": text,
+            "bbox": [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)],
+            "center": [round((x1 + x2) / 2, 2), round((y1 + y2) / 2, 2)],
+            "width": round(x2 - x1, 2),
+            "height": round(y2 - y1, 2),
+            "confidence": score,
+        }
+
+        # Attach word-level boxes when the engine can provide them.
+        if i < len(word_texts) and i < len(word_regions):
+            words = []
+            for wt, wr in zip(word_texts[i], word_regions[i]):
+                max_len = len(wr) if hasattr(wr, "__len__") else 0
+                if max_len >= 4:
+                    wx1, wy1, wx2, wy2 = _quad_to_bbox(wr)
+                else:
+                    continue
+                words.append(
+                    {
+                        "text": str(wt),
+                        "bbox": [wx1, wy1, wx2, wy2],
+                    }
+                )
+            if words:
+                element["words"] = words
+
+        output.append(element)
 
     return output
 

@@ -1,9 +1,11 @@
 import os
 import shutil
 import tempfile
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from service.document_service import (
     analyze_document,
@@ -14,6 +16,28 @@ from service.structure_service import (
 )
 from service.validation_service import (
     validate_extraction
+)
+from service.storage_service import (
+    init_db,
+    storage_enabled,
+    save_document,
+    list_documents,
+    get_document,
+    get_document_file,
+    delete_document,
+)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(
+    title="Document Extraction API",
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
 
@@ -109,6 +133,10 @@ async def extract_document(
                 temp_file
             )
 
+        # Preserve the original filename / mime type for display + storage.
+        content_type = image.content_type
+        original_filename = image.filename or "document"
+
         # -------------------------------------------------
         # 1. Preprocess + build document representation
         # -------------------------------------------------
@@ -160,15 +188,20 @@ async def extract_document(
         # Return final result
         # -------------------------------------------------
 
-        return {
+        response_body = {
             "success": True,
 
-            "filename": image.filename,
+            "filename": original_filename,
 
             "image": {
                 "width": doc_rep["image_width"],
                 "height": doc_rep["image_height"]
             },
+
+            # Perspective-corrected / oriented image whose coordinate system
+            # all overlay bboxes are normalized against. Render THIS image,
+            # not the raw upload, so the overlays line up.
+            "processed_image": doc_rep.get("processed_image_data_url"),
 
             "preprocessing": doc_rep["preprocessing"],
 
@@ -195,6 +228,28 @@ async def extract_document(
             "llm_output": llm_data,
         }
 
+        # -------------------------------------------------
+        # Persist upload + output (best-effort; never fails the request)
+        # -------------------------------------------------
+
+        if storage_enabled():
+            try:
+                # Persist the corrected image (the coordinate system all
+                # overlays are normalized against) so the dashboard renders
+                # accurate boxes. The original filename/mime are preserved.
+                response_body["document_id"] = save_document(
+                    original_filename,
+                    content_type,
+                    doc_rep.get("processed_image_data_url"),
+                    doc_rep,
+                    response_body,
+                )
+            except Exception as e:
+                print(f"[STORAGE] save failed: {e}")
+                response_body["document_id"] = None
+
+        return response_body
+
     except HTTPException:
         raise
 
@@ -217,3 +272,68 @@ async def extract_document(
 
         if os.path.exists(image_path):
             os.remove(image_path)
+
+
+# ---------------------------------------------------------
+# Document storage (dashboard)
+# ---------------------------------------------------------
+
+def _require_storage():
+    if not storage_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Document storage is disabled (DATABASE_URL not set).",
+        )
+
+
+@app.get("/documents")
+def documents_list(limit: int = 200):
+    _require_storage()
+    try:
+        return {"documents": list_documents(limit)}
+    except Exception as e:
+        print(f"[STORAGE] list failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list documents.")
+
+
+@app.get("/documents/{document_id}")
+def documents_get(document_id: str):
+    _require_storage()
+    try:
+        record = get_document(document_id)
+    except Exception as e:
+        print(f"[STORAGE] get failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load document.")
+    if record is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return record
+
+
+@app.get("/documents/{document_id}/image")
+def documents_image(document_id: str):
+    _require_storage()
+    try:
+        payload = get_document_file(document_id)
+    except Exception as e:
+        print(f"[STORAGE] image failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load image.")
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    return Response(
+        content=payload["image"],
+        media_type=payload["mime_type"] or "image/jpeg",
+    )
+
+
+@app.delete("/documents/{document_id}")
+def documents_delete(document_id: str):
+    _require_storage()
+    try:
+        deleted = delete_document(document_id)
+    except Exception as e:
+        print(f"[STORAGE] delete failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete document.")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return {"success": True}

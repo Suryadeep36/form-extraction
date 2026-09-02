@@ -1,4 +1,5 @@
 import numpy as np
+import re
 
 from util.structure_utils import (
     _element_map,
@@ -7,15 +8,22 @@ from util.structure_utils import (
     _resolve_sections,
     _find_section_for_element,
     _split_inline_label_value,
+    _split_option_instruction,
     _avg_confidence,
     _infer_value_type,
-    _build_table
+    _build_table,
+    _build_table_from_document,
+    _build_coordinate_table,
+    _split_multiselect_question,
+    _geometry_field_map,
+    _geometry_field_signature,
 )
 
 from util.geometry_utils import (
     _union_bbox,
     _norm,
-    _point_in_bbox
+    _point_in_bbox,
+    _iou,
 )
 
 def resolve_structure(llm_data, doc_rep, candidates):
@@ -24,6 +32,9 @@ def resolve_structure(llm_data, doc_rep, candidates):
     regions = _region_map(doc_rep)
     width = doc_rep["image_width"]
     height = doc_rep["image_height"]
+
+    geometry_fields = doc_rep.get("fields", [])
+    geometry_consumed = set()  # geometry field ids folded into LLM fields
 
     sections = _resolve_sections(llm_data, doc_rep)
 
@@ -142,6 +153,28 @@ def resolve_structure(llm_data, doc_rep, candidates):
                 "value_bbox_pixels": value_bbox,
             }
 
+            # Attach the geometry input region when this pair matches a
+            # cv-detected field (same label id in the geometric signature).
+            geo_field = next(
+                (
+                    gf
+                    for gf in geometry_fields
+                    if label_element["id"] in _geometry_field_signature(gf)
+                ),
+                None,
+            )
+            if geo_field is not None:
+                region = geo_field.get("input_region")
+                if region:
+                    field["input_region"] = {
+                        "id": region["id"],
+                        "kind": region["kind"],
+                        "bbox": _norm(region["bbox"], width, height),
+                        "bbox_pixels": region["bbox"],
+                    }
+                    field["source"] = "geometry+llm"
+                geometry_consumed.add(geo_field["id"])
+
             if index is None:
                 section_outputs.append(
                     {
@@ -189,9 +222,13 @@ def resolve_structure(llm_data, doc_rep, candidates):
 
             options = []
             for option in option_elements:
+                label_text, instruction_text = _split_option_instruction(
+                    option["text"]
+                )
                 options.append(
                     {
-                        "label": option["text"],
+                        "label": label_text,
+                        "instruction": instruction_text,
                         "selected": option["id"] == answer_id,
                         "confidence": option["confidence"],
                         "element_id": option["id"],
@@ -202,10 +239,21 @@ def resolve_structure(llm_data, doc_rep, candidates):
 
             index = section_for_element(question_id)
 
+            selected_label = None
+            for option in options:
+                if option["selected"]:
+                    selected_label = option["label"]
+                    break
+
             entry = {
                 "question": question_element["text"],
-                "answer": (answer_element["text"] if answer_element else None),
+                "answer": (
+                    selected_label
+                    if selected_label is not None
+                    else (answer_element["text"] if answer_element else None)
+                ),
                 "options": options,
+                "multi_select": bool(relation.get("multi_select")),
                 "confidence": _avg_confidence(
                     [question_element["confidence"]]
                     + [e["confidence"] for e in option_elements]
@@ -268,10 +316,19 @@ def resolve_structure(llm_data, doc_rep, candidates):
             if label_element:
                 section_consumed[label_index].append(label_element["id"])
 
+            # Separate a leading option token from an embedded instruction
+            # (e.g. "NO IfNO, check one below" -> "NO" + "IfNO, check one below").
+            raw_label = label_text
+            split_label, embedded_instruction = _split_option_instruction(
+                raw_label or ""
+            ) if raw_label else (raw_label, None)
+            relation_instruction = relation.get("instruction")
+
             entry = {
-                "label": label_text,
+                "label": split_label,
                 "checked": bool(checked),
-                "instruction": None,
+                "instruction": relation_instruction
+                or embedded_instruction,
                 "confidence": checkbox["confidence"],
                 "uncertain": checkbox["state"] == "uncertain",
                 "reason": None,
@@ -287,7 +344,7 @@ def resolve_structure(llm_data, doc_rep, candidates):
                 section_outputs[0]["checkboxes"].append(entry)
 
         elif rtype == "table":
-            table = _build_table(
+            table = _build_table_from_document(
                 doc_rep,
                 relation.get("region_id"),
                 bool(relation.get("has_header", True)),
@@ -336,6 +393,160 @@ def resolve_structure(llm_data, doc_rep, candidates):
                     section_consumed[index].extend(cell["element_ids"])
 
             section_outputs[index]["tables"].append(table)
+
+    # ----- geometry fields the LLM did not explicitly restate -----
+    # The geometry layer already separated label/value between input regions;
+    # surface those in their owning section unless their element ids were
+    # consumed by an LLM relationship.
+    globally_consumed = set()
+    for index in range(len(section_outputs)):
+        globally_consumed.update(section_consumed[index])
+
+    for index, section in enumerate(sections):
+        sec_bbox = section_outputs[index]["bbox_pixels"]
+        if sec_bbox is None:
+            continue
+
+        existing_labels = {
+            tuple(e["label_bbox_pixels"]) if e.get("label_bbox_pixels") else None
+            for e in section_outputs[index]["fields"]
+        }
+
+        for gfield in geometry_fields:
+            if gfield["id"] in geometry_consumed:
+                continue
+
+            sig = _geometry_field_signature(gfield)
+            if sig & globally_consumed:
+                continue
+
+            if not (gfield.get("label") or gfield.get("value")):
+                continue
+
+            region = gfield.get("input_region")
+            if not region:
+                continue
+
+            rcenter = [
+                (region["bbox"][0] + region["bbox"][2]) / 2,
+                (region["bbox"][1] + region["bbox"][3]) / 2,
+            ]
+            if not _point_in_bbox(rcenter, sec_bbox):
+                continue
+
+            # Avoid a near-duplicate overlapping an LLM field in this section.
+            candidate_bbox = gfield.get("value_bbox") or gfield.get("label_bbox")
+            if candidate_bbox and any(
+                b is not None and _iou(candidate_bbox, b) >= 0.5
+                for b in existing_labels
+            ):
+                continue
+
+            value_text = gfield.get("value")
+            element_ids = list(sig)
+            field = {
+                "label": gfield.get("label"),
+                "value": value_text,
+                "value_type": _infer_value_type(value_text) if value_text else None,
+                "confidence": gfield.get("confidence"),
+                "uncertain": value_text is None,
+                "reason": None,
+                "source": "geometry",
+                "label_element_ids": list(gfield.get("label_element_ids") or []),
+                "value_element_ids": list(gfield.get("value_element_ids") or []),
+                "label_bbox": _norm(
+                    gfield["label_bbox"], width, height
+                )
+                if gfield.get("label_bbox")
+                else None,
+                "label_bbox_pixels": gfield.get("label_bbox"),
+                "value_bbox": _norm(gfield["value_bbox"], width, height)
+                if gfield.get("value_bbox")
+                else None,
+                "value_bbox_pixels": gfield.get("value_bbox"),
+                "input_region": {
+                    "id": region["id"],
+                    "kind": region["kind"],
+                    "bbox": _norm(region["bbox"], width, height),
+                    "bbox_pixels": region["bbox"],
+                },
+            }
+
+            section_outputs[index]["fields"].append(field)
+            section_consumed[index].extend(element_ids)
+            geometry_consumed.add(gfield["id"])
+
+    # ----- deterministic coordinate tables (Map / GPS rows) -----
+    # Hydro/physical forms commonly record site coordinates plus the source that
+    # captured them (Map, GPS, ...).  When the LLM does not emit an explicit
+    # `table` relationship for that region, build it from geometry/heuristics.
+    for index, section in enumerate(sections):
+        sec_elements = [eid for eid in section["element_ids"] if eid in elements]
+        sec_text = " ".join(
+            (elements[eid].get("text") or "").lower() for eid in sec_elements
+        )
+        has_coord_heading = any(k in sec_text for k in ("coordinates", "coordinate"))
+        has_coord_axis = ("latitude" in sec_text or "longitude" in sec_text) or bool(
+            re.search(r"[0-9]+\s*[°º'\"]", sec_text)
+        )
+        if not (has_coord_heading and has_coord_axis):
+            continue
+
+        table = _build_coordinate_table(elements, sec_elements, width, height)
+        if table is None:
+            continue
+        section_outputs[index]["tables"].append(table)
+        coord_ids = set(table["element_ids"])
+        section_consumed[index].extend(table["element_ids"])
+        # Drop the flattened latitude/longitude fields: their value text now
+        # lives in the coordinate table, avoiding a duplicated representation.
+        kept_fields = []
+        for field in section_outputs[index]["fields"]:
+            val_ids = set(field.get("value_element_ids") or [])
+            label = (field.get("label") or "").lower()
+            if (val_ids & coord_ids) or re.search(r"latitude|longitude", label):
+                continue
+            kept_fields.append(field)
+        section_outputs[index]["fields"] = kept_fields
+
+    # ----- deterministic "(x) all that apply" multi-select questions -----
+    # Prompt-style multi-select ("Stream/River verified by (x all that apply):"
+    # followed by glued options) is a layout the LLM often leaves as plain text.
+    # Surface it as a multi_select question when it has not been consumed.
+    for index, section in enumerate(sections):
+        for eid in list(section["element_ids"]):
+            if eid in section_consumed[index]:
+                continue
+            element = elements.get(eid)
+            if not element:
+                continue
+            question, options = _split_multiselect_question(element["text"])
+            if not options:
+                continue
+            entry = {
+                "question": question,
+                "answer": None,
+                "options": [
+                    {
+                        "label": opt,
+                        "instruction": None,
+                        "selected": False,
+                        "confidence": element["confidence"],
+                        "element_id": eid,
+                        "bbox": _norm(element["bbox"], width, height),
+                        "bbox_pixels": element["bbox"],
+                    }
+                    for opt in options
+                ],
+                "multi_select": True,
+                "confidence": element["confidence"],
+                "uncertain": True,
+                "reason": "no visible selected option (OCR could not recover marks)",
+                "question_element_ids": [eid],
+                "answer_element_ids": [],
+            }
+            section_outputs[index]["questions"].append(entry)
+            section_consumed[index].append(eid)
 
     # ----- other elements referenced by sections but not in fields -----
     for index, section in enumerate(sections):

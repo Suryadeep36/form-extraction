@@ -10,6 +10,19 @@ from util.geometry_utils import (
     _iou
 )
 
+from util.line_utils import (
+    detect_line_segments,
+    merge_collinear_horizontal,
+    merge_collinear_vertical,
+)
+
+from util.checkbox_utils import (
+    detect_checkboxes_visual,
+    strip_leading_option_mark,
+    checkbox_from_leading_mark,
+    merge_checkbox_candidates,
+)
+
 def detect_rectangular_regions(image_or_path, min_area_ratio=0.008):
     """
     Detect rectangular (bordered) regions in a scanned form.
@@ -207,103 +220,132 @@ def detect_checkboxes(image_or_path, min_size=15, max_size=60):
     return checkboxes
 
 def detect_horizontal_lines(image_or_path, min_width_ratio=0.20):
-    img = _load_gray(image_or_path)
-    h, w = img.shape
+    """
+    Detect horizontal line segments.
 
-    binary = _threshold_gray(img)
-
-    # 1. Use a much smaller kernel to survive gaps (e.g., 3% of width)
-    kernel_length = max(15, int(w * 0.03))
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_length, 1))
-
-    # 2. Extract horizontal elements
-    horizontal = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
-
-    # 3. Aggressively dilate horizontally to bridge the gaps in noisy lines
-    horizontal = cv2.dilate(horizontal, np.ones((2, 25), np.uint8), iterations=1)
-
-    contours, _ = cv2.findContours(
-        horizontal, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    Returns:
+        list of {"y": float, "x1": float, "x2": float, "length": float}
+        sorted top-to-bottom. Merged across small vertical offsets so the
+        caller sees one entry per visual line.
+    """
+    segments = detect_line_segments(
+        image_or_path,
+        orientation="horizontal",
+        min_length_ratio=min_width_ratio,
     )
+    merged = merge_collinear_horizontal(segments)
 
     lines = []
-
-    for contour in contours:
-        x, y, width, height = cv2.boundingRect(contour)
-
-        # 4. Enforce the strict 20% length rule HERE, on the reconstructed contour
-        if width < w * min_width_ratio:
-            continue
-
-        # 5. Increased height tolerance for slight document skews
-        if height > 40:
-            continue
-
-        lines.append({"y": y + height // 2, "x1": x, "x2": x + width, "length": width})
+    for seg in merged:
+        lines.append(
+            {
+                "y": round(seg["y"], 2),
+                "x1": round(seg["x1"], 2),
+                "x2": round(seg["x2"], 2),
+                "length": round(seg["length"], 2),
+            }
+        )
 
     lines.sort(key=lambda x: x["y"])
 
-    merged = []
+    deduped = []
     for line in lines:
-        if not merged:
-            merged.append(line)
+        if not deduped:
+            deduped.append(line)
             continue
+        previous = deduped[-1]
+        if abs(line["y"] - previous["y"]) <= 6 and line["length"] == previous["length"]:
+            continue
+        deduped.append(line)
 
-        previous = merged[-1]
-        if abs(line["y"] - previous["y"]) <= 10:
-            if line["length"] > previous["length"]:
-                merged[-1] = line
-        else:
-            merged.append(line)
-
-    return merged
+    return deduped
 
 
 def detect_vertical_lines(image_or_path, min_height_ratio=0.15):
-    img = _load_gray(image_or_path)
-    h, w = img.shape
+    """
+    Detect vertical line segments.
 
-    binary = _threshold_gray(img)
-
-    # 1. Small kernel for survival
-    kernel_length = max(15, int(h * 0.03))
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, kernel_length))
-
-    vertical = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
-
-    # 2. Aggressively dilate vertically to bridge gaps
-    vertical = cv2.dilate(vertical, np.ones((25, 2), np.uint8), iterations=1)
-
-    contours, _ = cv2.findContours(vertical, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    Returns:
+        list of {"x": float, "y1": float, "y2": float, "length": float}
+        sorted left-to-right.
+    """
+    segments = detect_line_segments(
+        image_or_path,
+        orientation="vertical",
+        min_length_ratio=min_height_ratio,
+    )
+    merged = merge_collinear_vertical(segments)
 
     lines = []
-
-    for contour in contours:
-        x, y, width, height = cv2.boundingRect(contour)
-
-        # 3. Enforce the strict height rule HERE
-        if height < h * min_height_ratio:
-            continue
-
-        # 4. Increased width tolerance for skew
-        if width > 40:
-            continue
-
-        lines.append({"x": x + width // 2, "y1": y, "y2": y + height, "length": height})
+    for seg in merged:
+        lines.append(
+            {
+                "x": round(seg["x"], 2),
+                "y1": round(seg["y1"], 2),
+                "y2": round(seg["y2"], 2),
+                "length": round(seg["length"], 2),
+            }
+        )
 
     lines.sort(key=lambda x: x["x"])
+    return lines
+
+
+def detect_checkboxes_ocr_anchored(image_or_path, raw_elements=None):
+    """
+    OCR-anchored checkbox detection.
+
+    Combines two complementary signals:
+      1. a conservative pixel detector (catches clear printed box rings and
+         unambiguous marks; may under-detect on degraded scans), and
+      2. the OCR leading-mark signal (when the engine glues an X/tick/underscore
+         onto the front of an option label it is a reliable `checked` signal).
+
+    Each candidate is associated with the OCR element it belongs to.
+    """
+    pixel = detect_checkboxes_visual(image_or_path, ocr_elements=raw_elements)
+    marks = []
+    for element in raw_elements or []:
+        if element.get("type") != "text":
+            continue
+        c = checkbox_from_leading_mark(element, image=image_or_path)
+        if c:
+            marks.append(c)
+    merged = merge_checkbox_candidates(pixel, marks)
+    # Keep only candidates the system is confident are *selected*. The pixel
+    # detector's unchecked/uncertain rings are unreliable on degraded scans and
+    # only add noise downstream; the OCR-mark signal is the trusted indicator.
+    kept = [c for c in merged if c.get("state") == "checked" or c.get("source") == "ocr_mark"]
+    kept.sort(key=lambda c: (c["center"][1], c["center"][0]))
+    for i, c in enumerate(kept):
+        c["id"] = f"c{i:03d}"
+    return kept
+
+
+def detect_checkboxes_with_marks(image_or_path, raw_elements=None):
+    """
+    Combine plain box detection with the OCR-anchored detector, deduped, and
+    enrich each with the leading option mark (if any) so callers can decide
+    whether a label's leading glyph is a real selection mark.
+    """
+    plain = {cb["bbox"][0]: cb for cb in detect_checkboxes(image_or_path)}
+    anchored = detect_checkboxes_ocr_anchored(image_or_path, raw_elements)
 
     merged = []
-    for line in lines:
-        if not merged:
-            merged.append(line)
+    used = set()
+    for cb in anchored:
+        merged.append(cb)
+        used.add((cb["bbox"][0], cb["bbox"][1]))
+
+    for cb in plain.values():
+        if (cb["bbox"][0], cb["bbox"][1]) in used:
             continue
+        cb.setdefault("element_id", None)
+        cb.setdefault("word", None)
+        cb.setdefault("associated_text", None)
+        merged.append(cb)
 
-        previous = merged[-1]
-        if abs(line["x"] - previous["x"]) <= 10:
-            if line["length"] > previous["length"]:
-                merged[-1] = line
-        else:
-            merged.append(line)
-
+    merged.sort(key=lambda c: (c["center"][1], c["center"][0]))
+    for i, c in enumerate(merged):
+        c["id"] = f"c{i:03d}"
     return merged

@@ -3,7 +3,12 @@ uvicorn
 python-dotenv
 groq
 python-multipart
+# Document dashboard / persistence (PostgreSQL).
+psycopg[binary]
 opencv-python
 numpy
 paddleocr
 paddlepaddle
+# Optional (default ON): pretrained table detection + structure recognition.
+# Without it the pipeline falls back to the CV-only table stack.
+paddlex>=3.0,<4.0
