@@ -301,6 +301,32 @@ def _warp_element_bbox(elements, H, width):
             new_bbox = list(bbox)
         ne = dict(e)
         ne["bbox"] = new_bbox
+        # Word-level boxes are stored in the same original OCR space as the
+        # element bbox; they must be transformed through the same homography
+        # or the compound-header/word assignment in `_assign_ocr_to_cells`
+        # would resolve words against misaligned (un-warped) coordinates and
+        # drop them into the wrong table row.
+        if e.get("words"):
+            warped_words = []
+            for w in e["words"]:
+                wb = w.get("bbox")
+                if not wb or len(wb) != 4:
+                    continue
+                wc = np.float32([
+                    [wb[0], wb[1]], [wb[2], wb[1]],
+                    [wb[2], wb[3]], [wb[0], wb[3]],
+                ]).reshape(-1, 1, 2)
+                try:
+                    ww = cv2.perspectiveTransform(wc, H).reshape(4, 2)
+                    wxs, wys = ww[:, 0], ww[:, 1]
+                    wbbox = [float(wxs.min()), float(wys.min()), float(wxs.max()), float(wys.max())]
+                except cv2.error:
+                    wbbox = list(wb)
+                nw = dict(w)
+                nw["bbox"] = wbbox
+                warped_words.append(nw)
+            if warped_words:
+                ne["words"] = warped_words
         out.append(ne)
     return out
 
