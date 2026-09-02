@@ -530,7 +530,7 @@ def finalize_tables(fused, doc_rep, image):
         # 1. This bbox is the tight bounding box from the ML detection model
         ml_bbox = [float(v) for v in table["bbox"]]
         cells = []
-        structure_source = "hybrid_ml_cv"
+        structure_source = None
 
         # 2. Find the OpenCV grid that overlaps with this ML table (IoU > 0.1)
         cv_table = next(
@@ -562,7 +562,12 @@ def finalize_tables(fused, doc_rep, image):
                     min(cy2, my2)
                 ]
                 cells.append(cell)
-                
+
+            # 3b. Drop the thin top/bottom sliver rows the clamp can leave
+            # behind (they are the phantom null rows) and renumber the grid.
+            cells = _drop_edge_slivers(cells)
+            structure_source = "cv"
+
             print(f"[TABLE-STRUCTURE] table_{i:03d} cells: {len(cells)} (source=hybrid_ml_cv)")
 
         # 4. Assign OCR strictly within this clamped geometry
@@ -618,6 +623,69 @@ def _clip_phantom_cells(cells, table_bbox):
         if x1 - tol_x <= cx <= x2 + tol_x and y1 - tol_y <= cy <= y2 + tol_y:
             clipped.append(cell)
     return clipped
+
+
+def _drop_edge_slivers(cells):
+    """
+    Remove ultra-thin leading/trailing row bands left over by the ML-bbox clamp.
+
+    When a table's outer border line is detected a hair inside the model's
+    bounding box, the clamp smears the first and last grid rows into thin
+    slivers (a few px tall) at the top and bottom edges.  These produce the
+    extra null rows seen as a "9x6 instead of 7x6" table.  Any band that is
+    much shorter than a genuine row is a clamp artifact, not a real row; we
+    drop only the slivers at the leading/trailing edges (interior thin bands,
+    e.g. partial sub-header lines, are kept) and renumber the surviving rows
+    to a clean 0-based, contiguous grid.
+
+    Surviving cells keep their geometry; only their `row` index (and any
+    `row_span`) is recomputed from the remaining row bands.
+    """
+    if not cells:
+        return cells
+
+    bands = {}
+    for cell in cells:
+        b = cell.get("bbox")
+        if not b or len(b) != 4:
+            continue
+        key = (round(b[1], 1), round(b[3], 1))
+        bands.setdefault(key, []).append(cell)
+
+    ordered = sorted(((y1, y2, cs) for (y1, y2), cs in bands.items()), key=lambda t: (t[0], t[1]))
+    if not ordered:
+        return cells
+
+    heights = [y2 - y1 for (y1, y2, _) in ordered]
+    median = float(np.median(heights)) if heights else 0.0
+    if median <= 0:
+        return cells
+
+    tol = 0.3 * median
+
+    # Drop slivers hugging the very top edge.
+    while len(ordered) > 1 and (ordered[0][1] - ordered[0][0]) < tol:
+        ordered.pop(0)
+    # Drop slivers hugging the very bottom edge.
+    while len(ordered) > 1 and (ordered[-1][1] - ordered[-1][0]) < tol:
+        ordered.pop()
+
+    if len(ordered) < 2:
+        return cells
+
+    # New row index for each surviving cell = position of the band its top
+    # aligns with, in the cleaned (0-based) row order.
+    row_index = {id(c): r for r, (y1, y2, cs) in enumerate(ordered) for c in cs}
+
+    out = []
+    for cell in cells:
+        b = cell.get("bbox")
+        if not b or len(b) != 4 or id(cell) not in row_index:
+            continue
+        result = dict(cell)
+        result["row"] = row_index[id(cell)]
+        out.append(result)
+    return out
 
 
 def _clip_cv_cells(cells, model_rows, model_cols):
