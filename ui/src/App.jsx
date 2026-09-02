@@ -2,6 +2,8 @@ import { NavLink, Route, Routes } from 'react-router-dom';
 import Dashboard from './pages/Dashboard.jsx';
 import Extractor from './pages/Extractor.jsx';
 import DocumentDetail from './pages/DocumentDetail.jsx';
+import Templates from './pages/Templates.jsx';
+import TemplateDetail from './pages/TemplateDetail.jsx';
 
 const navClass = ({ isActive }) =>
   `px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
@@ -21,6 +23,9 @@ export default function App() {
             <NavLink to="/extract" className={navClass}>
               New Extraction
             </NavLink>
+            <NavLink to="/templates" className={navClass}>
+              Templates
+            </NavLink>
           </div>
         </div>
       </nav>
@@ -29,6 +34,8 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/extract" element={<Extractor />} />
         <Route path="/document/:id" element={<DocumentDetail />} />
+        <Route path="/templates" element={<Templates />} />
+        <Route path="/templates/:id" element={<TemplateDetail />} />
         <Route
           path="*"
           element={

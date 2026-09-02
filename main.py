@@ -3,7 +3,7 @@ import shutil
 import tempfile
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
@@ -25,6 +25,13 @@ from service.storage_service import (
     get_document,
     get_document_file,
     delete_document,
+)
+from service.template_service import (
+    register_template,
+    extract_filled,
+    load_template,
+    list_templates,
+    get_template_image,
 )
 
 
@@ -270,6 +277,84 @@ async def extract_document(
         # Delete temporary files
         # -------------------------------------------------
 
+        if os.path.exists(image_path):
+            os.remove(image_path)
+
+
+# ---------------------------------------------------------
+# Two-pass template pipeline
+#
+# Pass 1: register an EMPTY form -> build a template (field labels + value
+#         regions). Pass 2: extract KV pairs from a FILLED form of the same
+#         layout by warping it onto the template via homography alignment.
+# Templates are stored as JSON + reference JPEG under uploads/templates/.
+# ---------------------------------------------------------
+
+def _save_upload(image: UploadFile):
+    if not image.content_type or not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image files are supported.")
+    suffix = os.path.splitext(image.filename or "")[1] or ".jpg"
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    with temp_file:
+        shutil.copyfileobj(image.file, temp_file)
+    return temp_file.name, image.filename or "document"
+
+
+@app.post("/register-template")
+async def register_form_template(image: UploadFile = File(...), name: str = ""):
+    image_path, filename = _save_upload(image)
+    try:
+        template = register_template(image_path, name=name or None)
+        return {"success": True, "template": template}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[TEMPLATE] register failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to register template: {e}")
+    finally:
+        if os.path.exists(image_path):
+            os.remove(image_path)
+
+
+@app.get("/templates")
+async def templates_list():
+    return {"templates": list_templates()}
+
+
+@app.get("/templates/{template_id}")
+async def templates_get(template_id: str):
+    template = load_template(template_id)
+    if template is None:
+        raise HTTPException(status_code=404, detail="Template not found.")
+    return {"template": template}
+
+
+@app.get("/templates/{template_id}/image")
+async def templates_image(template_id: str):
+    payload = get_template_image(template_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Template image not found.")
+    return Response(content=payload, media_type="image/jpeg")
+
+
+@app.post("/extract-filled")
+async def extract_filled_endpoint(
+    image: UploadFile = File(...),
+    template_id: str = Form(...),
+):
+    image_path, filename = _save_upload(image)
+    try:
+        template = load_template(template_id, with_reference=True)
+        if template is None:
+            raise HTTPException(status_code=404, detail="Template not found.")
+        result = extract_filled(template, image_path)
+        return {"success": True, "extraction": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[TEMPLATE] extract failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to extract filled form: {e}")
+    finally:
         if os.path.exists(image_path):
             os.remove(image_path)
 
