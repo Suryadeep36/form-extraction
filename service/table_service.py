@@ -8,6 +8,7 @@ kept separate from ordinary `regions` and from `fields`.
 
 import numpy as np
 import cv2
+import os
 
 import util.config as config
 from util.geometry_utils import (
@@ -167,6 +168,29 @@ def _assign_ocr_to_cells(elements, cells, table_bbox):
         3. word-level boxes spread across multiple cells (compound header
            texts spanning merged cells)
     """
+    # 1. Find the absolute highest physical line drawn by OpenCV
+    if not cells:
+        return
+    highest_drawn_line = min(c["bbox"][1] for c in cells if "bbox" in c)
+
+    # 2. Filter out any OCR elements whose center sits above the highest drawn line
+    filtered_elements = []
+    for el in elements:
+        _, y_center = _bbox_center(el["bbox"])
+        # If the word's center is below the table's top line, keep it
+        if y_center >= highest_drawn_line:
+            filtered_elements.append(el)
+            
+    # Swap out the elements list for the rest of the function
+    elements = filtered_elements
+
+    if cells and all("bbox" in c for c in cells):
+        strict_x1 = min(c["bbox"][0] for c in cells)
+        strict_y1 = min(c["bbox"][1] for c in cells)
+        strict_x2 = max(c["bbox"][2] for c in cells)
+        strict_y2 = max(c["bbox"][3] for c in cells)
+        table_bbox = [strict_x1, strict_y1, strict_x2, strict_y2]
+    
     x1, y1, x2, y2 = table_bbox
     cell_assignments = {}
 
@@ -282,33 +306,109 @@ def _offset_bboxes(cells, dx, dy):
 # ---------------------------------------------------------------------------
 
 def detect_and_fuse_tables(image, elements):
-    """
-    Stage 1: detect tables (CV + optional model), fuse, return lightweight
-    candidates. Structure recognition / OCR assignment happen in stage 2 so
-    the field layer can exclude table regions first.
-
-    Returns:
-        (fused, cv_candidates)
-            fused: [{bbox, confidence, source, sources}]
-            cv_candidates: raw CV candidates with grid structure (cells rows).
-                These are needed later for the CV structure-recognition
-                fallback.
-    """
     height, width = image.shape[:2]
 
-    # ---- CV detection ----------------------------------------------------
-    print("[TABLE-CV] Detecting tables...")
+    # ---- CV detection (Keep this running just in case ML fails) ----
     cv_candidates = detect_table_candidates(image, elements=elements)
-    print(f"[TABLE-CV] Candidates: {len(cv_candidates)}")
-    print(cv_candidates)
-    # ---- Model detection -------------------------------------------------
+    
+    # ---- Model detection -------------------------------------------
     model_candidates = []
-    model_service = get_table_model_service()
     if config.TABLE_MODEL_ENABLED:
-        print("[TABLE-MODEL] Detecting tables...")
+        model_service = get_table_model_service()
         model_candidates = model_service.detect_tables(image)
-        print(f"[TABLE-MODEL] Candidates: {len(model_candidates)}")
-        print(model_candidates)
+        
+    # NEW LOGIC: Model-Primary, CV-Fallback (No Fusion)
+    final_candidates = []
+    
+    if model_candidates:
+        print("[TABLE] Trusting ML Model. Bypassing CV.")
+        for mod in model_candidates:
+            final_candidates.append({
+                "bbox": _clamp_bbox(mod["bbox"], width, height),
+                "confidence": round(mod.get("confidence", 0.99), 4),
+                "source": "model",
+                "sources": ["model"],
+            })
+    else:
+        print("[TABLE] ML Model failed or disabled. Falling back to CV.")
+        for cv in cv_candidates:
+            final_candidates.append({
+                "bbox": _clamp_bbox(cv["bbox"], width, height),
+                "confidence": round(cv.get("confidence", 0.5), 4),
+                "source": "cv",
+                "sources": ["cv"],
+            })
+
+    return final_candidates, cv_candidates
+
+# def detect_and_fuse_tables(image, elements):
+#     """
+#     Stage 1: detect tables (CV + optional model), fuse, return lightweight
+#     candidates. Structure recognition / OCR assignment happen in stage 2 so
+#     the field layer can exclude table regions first.
+
+#     Returns:
+#         (fused, cv_candidates)
+#             fused: [{bbox, confidence, source, sources}]
+#             cv_candidates: raw CV candidates with grid structure (cells rows).
+#                 These are needed later for the CV structure-recognition
+#                 fallback.
+#     """
+#     height, width = image.shape[:2]
+
+#     # ---- CV detection ----------------------------------------------------
+#     print("[TABLE-CV] Detecting tables...")
+#     cv_candidates = detect_table_candidates(image, elements=elements)
+#     print(f"[TABLE-CV] Candidates: {len(cv_candidates)}")
+#     print(cv_candidates)
+#     # ---- Model detection -------------------------------------------------
+#     model_candidates = []
+#     model_service = get_table_model_service()
+#     if config.TABLE_MODEL_ENABLED:
+#         print("[TABLE-MODEL] Detecting tables...")
+#         model_candidates = model_service.detect_tables(image)
+#         print(f"[TABLE-MODEL] Candidates: {len(model_candidates)}")
+#         print(model_candidates)
+
+    # print("\n" + "="*40)
+    # print("🧨 DEBUG: RAW TABLE DETECTION OUTPUT")
+    # print("="*40)
+    
+    # if cv_candidates:
+    #     cv_box = [int(x) for x in cv_candidates[0]['bbox']]
+    #     cv_rows = max((c.get('row', 0) for c in cv_candidates[0].get('cells', [])), default=0) + 1
+    #     cv_cols = max((c.get('column', 0) for c in cv_candidates[0].get('cells', [])), default=0) + 1
+    #     print(f"[CV MODEL]     BBox: {cv_box}")
+    #     print(f"[CV MODEL]     Grid: {cv_rows} rows x {cv_cols} cols")
+    # else:
+    #     print("[CV MODEL]     No table detected.")
+
+    # if model_candidates:
+    #     mod_box = [int(x) for x in model_candidates[0]['bbox']]
+    #     print(f"[ML MODEL]     BBox: {mod_box} (Confidence: {model_candidates[0].get('confidence')})")
+    # else:
+    #     print("[ML MODEL]     No table detected.")
+    # print("="*40 + "\n")
+
+    # debug_img = image.copy()
+    
+    # # Draw CV bounding box in BLUE
+    # if cv_candidates:
+    #     x1, y1, x2, y2 = [int(v) for v in cv_candidates[0]["bbox"]]
+    #     cv2.rectangle(debug_img, (x1, y1), (x2, y2), (255, 0, 0), 3)
+    #     cv2.putText(debug_img, "CV (BLUE)", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
+
+    # # Draw ML bounding box in RED
+    # if model_candidates:
+    #     x1, y1, x2, y2 = [int(v) for v in model_candidates[0]["bbox"]]
+    #     cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 0, 255), 3)
+    #     cv2.putText(debug_img, "ML (RED)", (x2 - 150, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+
+    # # Save to current directory
+    # cv2.imwrite("debug_table_boxes.jpg", debug_img)
+    # print("🧨 DEBUG: Saved 'debug_table_boxes.jpg'. Open it to see the bounding boxes!")
+
+
     # ---- Fusion -----------------------------------------------------------
     print("[TABLE-FUSION] Merging candidates...")
     fused = _fuse_candidates(cv_candidates, model_candidates, (height, width))
@@ -321,67 +421,157 @@ def detect_and_fuse_tables(image, elements):
     return fused, cv_candidates
 
 
+# def finalize_tables(fused, doc_rep, image):
+#     """
+#     Stage 2: for each fused candidate run structure recognition and assign OCR
+#     text to cells.
+
+#     Structure authority is the pretrained model: its SLANeXt topology is what
+#     decides how many rows/columns the grid really has (and which cells span).
+#     OpenCV is used only for precise cell geometry - the drawn line positions
+#     that map OCR text into the cells.  Models are trusted for the *structural
+#     description* of a table; CV (the drawn grid) is what locates the values.
+
+#     When the model is unavailable the CV grid is used as-is so the system
+#     still works on machines without the model stack installed.
+#     """
+#     height, width = image.shape[:2]
+#     elements = doc_rep.get("elements", [])
+#     model_service = get_table_model_service()
+
+#     tables = []
+#     for i, table in enumerate(fused):
+#         bbox = [float(v) for v in table["bbox"]]
+
+#         cells = []
+#         structure_source = None
+
+#         cv_table = next(
+#             (c for c in (doc_rep.get("_cv_tables") or []) if _iou(bbox, c["bbox"]) > 0.1),
+#             None,
+#         )
+
+#         # Model topology: the grid dimensions (rows x columns) are taken from
+#         # the pretrained structure model.  It is trusted to say how many rows
+#         # and columns the table really has - which fixes CV over-extending the
+#         # grid into footer text below the last drawn row.
+#         model_rows = None
+#         model_cols = None
+#         if model_service.available:
+#             wired = _looks_wired(
+#                 image[int(bbox[1]) : int(bbox[3]), int(bbox[0]) : int(bbox[2])]
+#             )
+#             model_cells, n_rows, n_cols = model_service.recognize_structure(
+#                 image[int(bbox[1]) : int(bbox[3]), int(bbox[0]) : int(bbox[2])],
+#                 wired=wired,
+#             )
+#             if model_cells:
+#                 model_rows, model_cols = n_rows, n_cols
+
+#         # Prefer the drawn CV grid for geometry, then clip its extent to the
+#         # model-decided row/column count so phantom rows/cols added by CV
+#         # beyond the real grid (footer text, border gutters) do not survive.
+#         if cv_table and cv_table.get("cells"):
+#             cells = _clip_cv_cells(
+#                 cv_table["cells"], model_rows, model_cols
+#             )
+#             structure_source = "cv"
+#             # The cells are defined over the CV candidate's grid extent.
+#             bbox = [float(v) for v in cv_table["bbox"]]
+#             print(
+#                 f"[TABLE-STRUCTURE] table_{i:03d} cells: {len(cells)} "
+#                 f"(source=cv rows={model_rows} cols={model_cols})"
+#             )
+#         elif model_service.available and model_rows is not None:
+#             if model_cells:
+#                 model_cells = _offset_bboxes(model_cells, bbox[0], bbox[1])
+#                 # SLANeXt occasionally over-extends beyond the detected table
+#                 # and produces phantom rows that swallow unrelated text below
+#                 # (e.g. a "FOR OFFICE USE ONLY" strip). Drop cells whose
+#                 # centre falls outside the table bbox.
+#                 model_cells = _clip_phantom_cells(model_cells, bbox)
+#                 cells = model_cells
+#                 structure_source = "model"
+#                 print(
+#                     f"[TABLE-STRUCTURE] table_{i:03d} cells: {len(cells)} "
+#                     f"(rows={model_rows}, source=model)"
+#                 )
+
+#         _assign_ocr_to_cells(elements, cells, bbox)
+
+#         tables.append(
+#             {
+#                 "id": f"table_{i:03d}",
+#                 "bbox": [round(v, 2) for v in bbox],
+#                 "confidence": table.get("confidence"),
+#                 "source": table.get("source"),
+#                 "sources": table.get("sources", []),
+#                 "cells": cells,
+#                 "structure_source": structure_source,
+#                 "n_cells": len(cells),
+#             }
+#         )
+
+#     print(f"[OCR-CELL] Tables processed: {len(tables)}")
+#     return tables
+
 def finalize_tables(fused, doc_rep, image):
     """
-    Stage 2: for each fused candidate run structure recognition (model-first,
-    CV fallback) and assign OCR text to cells.
+    Stage 2: Hybrid Extraction.
+    Uses the Machine Learning bounding box (PicoDet) for the outer table limits, 
+    but uses OpenCV for the internal grid structure, clamping the CV cells 
+    strictly to the ML boundaries to cut off floating text and footers.
     """
     height, width = image.shape[:2]
     elements = doc_rep.get("elements", [])
-    model_service = get_table_model_service()
 
     tables = []
     for i, table in enumerate(fused):
-        bbox = [float(v) for v in table["bbox"]]
-
+        # 1. This bbox is the tight bounding box from the ML detection model
+        ml_bbox = [float(v) for v in table["bbox"]]
         cells = []
-        structure_source = None
+        structure_source = "hybrid_ml_cv"
 
-        # Prefer the CV grid when one exists: it is rebuilt directly from the
-        # drawn lines, so a fully-bordered table gets its exact rows/columns.
-        # Learned (model) structure is used when there is no CV grid (weak or
-        # fragmented lines) - that is the case the model is best at.
+        # 2. Find the OpenCV grid that overlaps with this ML table (IoU > 0.1)
         cv_table = next(
-            (c for c in (doc_rep.get("_cv_tables") or []) if _iou(bbox, c["bbox"]) > 0.5),
+            (c for c in (doc_rep.get("_cv_tables") or []) if _iou(ml_bbox, c["bbox"]) > 0.1),
             None,
         )
-        if cv_table and cv_table.get("cells"):
-            cells = cv_table["cells"]
-            structure_source = "cv"
-            # The cells are defined over the CV candidate's grid extent.
-            bbox = [float(v) for v in cv_table["bbox"]]
-            print(
-                f"[TABLE-STRUCTURE] table_{i:03d} cells: {len(cells)} "
-                f"(source=cv)"
-            )
-        elif model_service.available:
-            wired = _looks_wired(
-                image[int(bbox[1]) : int(bbox[3]), int(bbox[0]) : int(bbox[2])]
-            )
-            model_cells, n_rows, n_cols = model_service.recognize_structure(
-                image[int(bbox[1]) : int(bbox[3]), int(bbox[0]) : int(bbox[2])],
-                wired=wired,
-            )
-            if model_cells:
-                model_cells = _offset_bboxes(model_cells, bbox[0], bbox[1])
-                # SLANeXt occasionally over-extends beyond the detected table
-                # and produces phantom rows that swallow unrelated text below
-                # (e.g. a "FOR OFFICE USE ONLY" strip). Drop cells whose
-                # centre falls outside the table bbox.
-                model_cells = _clip_phantom_cells(model_cells, bbox)
-                cells = model_cells
-                structure_source = "model"
-                print(
-                    f"[TABLE-STRUCTURE] table_{i:03d} cells: {len(cells)} "
-                    f"(rows={n_rows}, source=model)"
-                )
 
-        _assign_ocr_to_cells(elements, cells, bbox)
+        # 3. Apply the OpenCV Grid, but clamp it to the ML Bounding Box
+        if cv_table and cv_table.get("cells"):
+            raw_cv_cells = cv_table["cells"]
+            mx1, my1, mx2, my2 = ml_bbox
+            
+            for cell in raw_cv_cells:
+                if "bbox" not in cell:
+                    continue
+                    
+                cx1, cy1, cx2, cy2 = cell["bbox"]
+                
+                # If the CV cell is completely outside the ML box (e.g. phantom footer rows), discard it
+                if cy2 <= my1 or cy1 >= my2 or cx2 <= mx1 or cx1 >= mx2:
+                    continue
+                    
+                # THE GUILLOTINE: Clamp the CV cell's coordinates to the ML boundary.
+                # This mathematically forces the top row to start at 543 instead of 515.
+                cell["bbox"] = [
+                    max(cx1, mx1),
+                    max(cy1, my1),
+                    min(cx2, mx2),
+                    min(cy2, my2)
+                ]
+                cells.append(cell)
+                
+            print(f"[TABLE-STRUCTURE] table_{i:03d} cells: {len(cells)} (source=hybrid_ml_cv)")
+
+        # 4. Assign OCR strictly within this clamped geometry
+        _assign_ocr_to_cells(elements, cells, ml_bbox)
 
         tables.append(
             {
                 "id": f"table_{i:03d}",
-                "bbox": [round(v, 2) for v in bbox],
+                "bbox": [round(v, 2) for v in ml_bbox],
                 "confidence": table.get("confidence"),
                 "source": table.get("source"),
                 "sources": table.get("sources", []),
@@ -428,6 +618,42 @@ def _clip_phantom_cells(cells, table_bbox):
         if x1 - tol_x <= cx <= x2 + tol_x and y1 - tol_y <= cy <= y2 + tol_y:
             clipped.append(cell)
     return clipped
+
+
+def _clip_cv_cells(cells, model_rows, model_cols):
+    """
+    Trim a CV-built cell grid down to the model-decided dimensions.
+
+    The drawn-grid (CV) structure is geometrically precise but can add phantom
+    rows below the last real row - e.g. a long vertical line or the border
+    reaching into footer text ("Kindly sanction..."), or extra gutter columns
+    at the edges.  The pretrained structure model is trusted on how many rows
+    and columns the table truly has, so any CV cell living on or beyond those
+    bounds is dropped.  When the model gave no dimensions the grid is kept
+    untouched.
+
+    Row/column indices are the logical grid addresses emitted by
+    `build_cv_structure` (0-based), so clipping is a plain index comparison.
+    """
+    if model_rows is None and model_cols is None:
+        return cells
+    if model_rows is None:
+        model_rows = model_cols
+    if model_cols is None:
+        model_cols = model_rows
+
+    keep = []
+    for cell in cells:
+        row = cell.get("row")
+        column = cell.get("column")
+        row_span = int(cell.get("row_span") or 1)
+        col_span = int(cell.get("column_span") or 1)
+        if row is not None and row_span and row + row_span > model_rows:
+            continue
+        if column is not None and col_span and column + col_span > model_cols:
+            continue
+        keep.append(cell)
+    return keep
 
 
 def process_tables(doc_rep, image):

@@ -62,6 +62,27 @@ def _merge_duplicate_candidates(candidates, iou_threshold=0.75):
             deduped.append(cand)
     return deduped
 
+def _extend_segments(segments, padding, orientation):
+    """Artificially stretch segments to ensure T-junctions intersect."""
+    extended = []
+    for seg in segments:
+        new_seg = seg.copy()  # Prevent mutating the original
+        
+        if orientation == "horizontal":
+            # Horizontal dicts have keys: x1, x2, y, length
+            new_seg["x1"] -= padding
+            new_seg["x2"] += padding
+            new_seg["length"] = new_seg["x2"] - new_seg["x1"]
+        else:
+            # Vertical dicts have keys: y1, y2, x, length
+            new_seg["y1"] -= padding
+            new_seg["y2"] += padding
+            new_seg["length"] = new_seg["y2"] - new_seg["y1"]
+            
+        extended.append(new_seg)
+        
+    return extended
+
 
 def detect_table_candidates(
     image_or_gray,
@@ -111,6 +132,10 @@ def detect_table_candidates(
     verticals = merge_collinear_vertical(
         v_segments, x_tol=8, max_gap_px=int(h * 0.02) + 20
     )
+    
+    padding = max(15, int(min(w, h) * 0.015))
+    horizontals = _extend_segments(horizontals, padding, "horizontal")
+    verticals = _extend_segments(verticals, padding, "vertical")
 
     if len(horizontals) < 2 or len(verticals) < 2:
         return []
@@ -120,9 +145,11 @@ def detect_table_candidates(
     vmask = segments_to_mask(verticals, (h, w), "vertical", thickness=3)
     grid = cv2.add(hmask, vmask)
 
+    kernel_w = max(3, int(w / 200)) 
+    kernel_h = max(3, int(h / 200))
     # Bridge small gaps in broken borders without gluing neighbouring
     # tables together: modest kernel, then re-check with real segments.
-    bridge = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+    bridge = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_w, kernel_h))
     grid_closed = cv2.morphologyEx(grid, cv2.MORPH_CLOSE, bridge)
 
     n_comp, labels, stats, _ = cv2.connectedComponentsWithStats(
@@ -279,6 +306,23 @@ def build_cv_structure(bbox, rows, columns, verticals, horizontals):
     x1, y1, x2, y2 = bbox
 
     if len(rows) < 2 or len(columns) < 2:
+        return []
+
+    columns = list(columns)
+    rows = list(rows)
+
+    # Drop the width-one margin strips that hug the table's outer border.
+    # These are the gap between the border (x1/x2) and the first/last real
+    # column line; they contain no data and would otherwise add a phantom
+    # leading/trailing column.  Real columns never touch the border, so the
+    # edge-membership check is width-independent and never drops a genuine
+    # narrow column such as a "No." column.
+    while len(columns) >= 3 and abs(columns[0] - x1) <= 2:
+        columns.pop(0)
+    while len(columns) >= 3 and abs(columns[-1] - x2) <= 2:
+        columns.pop()
+
+    if len(columns) < 2:
         return []
 
     # Map each internal boundary to the vertical/horizontal segments that run
