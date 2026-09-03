@@ -44,6 +44,9 @@ from service.table_service import (
 from util.perspective_utils import (
     correct_perspective,
 )
+from util.geometry_utils import (
+    _iou
+)
 
 def build_document_representation(image, image_path=None):
     """
@@ -104,6 +107,27 @@ def build_document_representation(image, image_path=None):
 
     # ---- Tables stage 1: detect + fuse (bbox-only) -----------------------
     fused, cv_candidates = detect_and_fuse_tables(image, raw_elements)
+    valid_tables = []
+    for t in fused:
+        bbox = t["bbox"]
+        table_height = bbox[3] - bbox[1]
+        
+        cv_match = next((c for c in cv_candidates if _iou(bbox, c["bbox"]) > 0.5), None)
+        
+        if cv_match and cv_match.get("n_intersections", 0) == 0:
+            print(f"[TABLE FILTER] Dropped fake table (0 intersections): {bbox}")
+            continue
+            
+        if table_height < 60: 
+            print(f"[TABLE FILTER] Dropped fake table (too short): {bbox}")
+            continue
+            
+        valid_tables.append(t)
+        
+    fused = valid_tables
+    # ==========================================
+
+    # 2. Build the exclusion boxes using ONLY the valid tables
     table_bboxes = [t["bbox"] for t in fused]
 
     # ---- Form fields (input regions + compound splitting) ----------------

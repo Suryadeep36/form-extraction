@@ -195,7 +195,7 @@ def build_template_fields(doc_rep, image_width, image_height):
     # keep the most reliable structure (underline > box > blank, then
     # confidence).  Non-overlapping same-label fields (e.g. a second "to" on
     # a different line) are kept.
-    kind_rank = {"underline": 3, "box": 2, "blank": 1}
+    kind_rank = {"box": 3, "underline": 2, "blank": 1}
     ordered = sorted(
         out,
         key=lambda f: (kind_rank.get(f["kind"], 0), f["confidence"] or 0.0),

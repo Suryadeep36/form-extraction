@@ -308,7 +308,7 @@ def _offset_bboxes(cells, dx, dy):
 def detect_and_fuse_tables(image, elements):
     height, width = image.shape[:2]
 
-    # ---- CV detection (Keep this running just in case ML fails) ----
+    # ---- CV detection (runs as baseline truth for structural cross-referencing)
     cv_candidates = detect_table_candidates(image, elements=elements)
     
     # ---- Model detection -------------------------------------------
@@ -317,23 +317,53 @@ def detect_and_fuse_tables(image, elements):
         model_service = get_table_model_service()
         model_candidates = model_service.detect_tables(image)
         
-    # NEW LOGIC: Model-Primary, CV-Fallback (No Fusion)
     final_candidates = []
     
     if model_candidates:
-        print("[TABLE] Trusting ML Model. Bypassing CV.")
+        print("[TABLE] ML Model detected candidates. Validating...")
         for mod in model_candidates:
+            bbox = mod["bbox"]
+            box_height = bbox[3] - bbox[1]
+            box_width = bbox[2] - bbox[0]
+            
+            # FILTER 1: Aggressive Height Threshold
+            # A real table with a header and at least one data row needs vertical space.
+            # A single-line input box will almost always be less than 80-90px.
+            if box_height < max(90, height * 0.05):
+                print(f"[TABLE FILTER] Dropped ML fake table (too short, height={box_height}): {bbox}")
+                continue
+                
+            # FILTER 2: CV Cross-reference for Single Cells
+            # A single drawn box has exactly 4 intersections (the corners).
+            # A real table (even a simple 1x2 grid) will have at least 6 intersections.
+            cv_match = next((c for c in cv_candidates if _iou(bbox, c["bbox"]) > 0.5), None)
+            if cv_match and cv_match.get("n_intersections", 0) <= 4:
+                print(f"[TABLE FILTER] Dropped ML fake table (Single cell / <= 4 intersections): {bbox}")
+                continue
+
+            # If it survives the filters, it is a legitimate table
             final_candidates.append({
-                "bbox": _clamp_bbox(mod["bbox"], width, height),
+                "bbox": _clamp_bbox(bbox, width, height),
                 "confidence": round(mod.get("confidence", 0.99), 4),
                 "source": "model",
                 "sources": ["model"],
             })
-    else:
-        print("[TABLE] ML Model failed or disabled. Falling back to CV.")
+            
+    # If the ML model found nothing (or if everything was filtered out as fake boxes), 
+    # fall back to CV, applying the same strict rules.
+    if not final_candidates:
+        print("[TABLE] ML Model empty or filtered. Falling back to CV.")
         for cv in cv_candidates:
+            bbox = cv["bbox"]
+            
+            # Filter fake CV tables
+            if cv.get("n_intersections", 0) == 0:
+                continue
+            if (bbox[3] - bbox[1]) < max(60, height * 0.03):
+                continue
+                
             final_candidates.append({
-                "bbox": _clamp_bbox(cv["bbox"], width, height),
+                "bbox": _clamp_bbox(bbox, width, height),
                 "confidence": round(cv.get("confidence", 0.5), 4),
                 "source": "cv",
                 "sources": ["cv"],
