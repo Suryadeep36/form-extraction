@@ -317,9 +317,22 @@ def _detect_blank_gaps(elements, gray, gap_ratio=0.012):
             band_binary = _threshold_gray(band)
             ink = float(np.mean(band_binary > 0))
 
-            # The gap should be visually empty.
             if ink > 0.05:
-                continue
+                # A short blank often carries a faint printed underline that
+                # line detection missed (e.g. "Technical subjects: ____").
+                # Tolerate ink shaped like a thin horizontal rule (a few
+                # consecutive inked rows covering most of the gap width) but
+                # reject real printed text, which spans many rows and blobs.
+                longest_run = 0
+                run = 0
+                for row_ink in (band_binary > 0).sum(axis=1):
+                    run = run + 1 if row_ink > 0 else 0
+                    longest_run = max(longest_run, run)
+                col_ink = (band_binary > 0).sum(axis=0)
+                coverage = float((col_ink > 0).mean())
+                # The gap should be visually empty (or carry a faint rule only).
+                if ink > 0.25 or longest_run > 5 or coverage < 0.6:
+                    continue
 
             gaps.append(
                 {
