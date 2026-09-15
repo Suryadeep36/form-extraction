@@ -34,6 +34,7 @@ from service.structure_service import resolve_structure
 
 import test_checkboxes as checkboxes
 import test_templates as templates
+import test_label_fixes as label_fixes
 
 FAILURES = []
 
@@ -209,6 +210,7 @@ def main():
         checkboxes.test_split_option_instruction,
         checkboxes.test_split_multiselect_question,
         templates.test_template_register_extract,
+        label_fixes.main,
     ]
     if len(sys.argv) > 1 and sys.argv[1] == "--quick":
         tests = [test_leave_form_fields, test_wired_table_structure]

@@ -40,7 +40,12 @@ def _label_is_field_label(text):
     if len(t) < 2:
         return False
     # Multi-sentence instructions / headings are not single value labels.
-    if t.count(".") > 2 or ":" in t and len(t) > 40:
+    # A long line that still *ends* in ":" is a label-headed field
+    # (e.g. "Name of Board from which qualifying Examination Std. 12th
+    # (Science) passed:") and must stay a valid label.
+    if t.count(".") > 2 or (
+        ":" in t and len(t) > 40 and not t.rstrip().endswith(":")
+    ):
         return False
     if t.lower() == "for office use only":
         return False
@@ -92,13 +97,20 @@ def _find_upward_label(region, elements, median_text_h):
 
 def _label_for_region(region, elements, median_text_h):
     """
-    Find the printed label immediately to the left of an input region.
+    Find the printed label for an input region.
 
-    A label must sit on the region's own row band, begin before the region's
-    right edge, and end at-or-before the region's left edge (with a small
-    tolerance so a short connective label such as "to" that OCR places a few
-    px past the region start is still claimed -- the exact case that breaks if
-    the gate is `end <= x1 + 0.3*text_h`).
+    Order of fallback:
+      1. A label on the region's own row, sitting to the LEFT and ending
+         at-or-before the region's left edge (small tolerance for short
+         connectives like "to" that OCR shoves a few px past the start).
+      2. A *straddling* text element whose box crosses the region's left
+         edge -- e.g. OCR glues "Date of Birth://" into one box. Its
+         word-level boxes isolate the real label prefix ("Date of Birth")
+         from the trailing "/" separators.
+      3. A primary label on the line directly ABOVE the region (within
+         1.5 * median_text_h), when the row itself has no left label
+         (e.g. "Address:" printed above its value line, or a multiline
+         label such as "Name of Board from which..." / "(Gujarat Board:)").
 
     Returns {"text": str, "bbox": [x1,y1,x2,y2]} or None.
     """
@@ -106,6 +118,8 @@ def _label_for_region(region, elements, median_text_h):
     x1, y1, x2, y2 = rb
     line_cy = (y1 + y2) / 2.0
     tol = max(8.0, 0.4 * median_text_h)
+    row_lo = y1 - (y2 - y1) * 0.5
+    row_hi = y2 + (y2 - y1) * 0.5
 
     candidates = []
     # Distance cap: a label cannot be arbitrarily far to the left. This stops
@@ -121,7 +135,10 @@ def _label_for_region(region, elements, median_text_h):
         # A single stray punct glyph (":", ")", ".") is never a label.
         if len((el.get("text") or "").strip()) < 2:
             continue
-        if not (y1 - (y2 - y1) * 0.5 <= el["center"][1] <= y2 + (y2 - y1) * 0.5):
+        cy = el.get("center", [None, None])[1]
+        if cy is None:
+            cy = (eb[1] + eb[3]) / 2.0
+        if not (row_lo <= cy <= row_hi):
             continue
         if eb[0] >= x2:
             continue
@@ -132,6 +149,58 @@ def _label_for_region(region, elements, median_text_h):
         candidates.append(el)
 
     if not candidates:
+        # 2. Straddling text element: its box crosses the region's left edge.
+        # Use the word boxes that end before the region to recover the label
+        # prefix ("Date of Birth" out of a glued "Date of Birth://").
+        straddle = []
+        for el in elements:
+            if el.get("is_value"):
+                continue
+            eb = el.get("bbox")
+            if not eb or len(eb) != 4:
+                continue
+            cy = el.get("center", [None, None])[1]
+            if cy is None:
+                cy = (eb[1] + eb[3]) / 2.0
+            if not (row_lo <= cy <= row_hi):
+                continue
+            if not (eb[0] < x1 < eb[2]):
+                continue
+            words = el.get("words") or []
+            kept = [
+                w for w in words
+                if w.get("bbox") and len(w["bbox"]) == 4 and w["bbox"][2] <= x1 + tol
+            ]
+            if not kept:
+                continue
+            wtext = " ".join(
+                w.get("text", "").strip() for w in kept if w.get("text")
+            ).strip()
+            wtext = re.sub(r"\s+", " ", wtext)
+            if len(wtext) < 2 or re.fullmatch(r"[\\/‑–—\-\u2212]+", wtext):
+                continue
+            straddle.append(
+                {
+                    "text": wtext,
+                    "bbox": [
+                        min(w["bbox"][0] for w in kept),
+                        min(w["bbox"][1] for w in kept),
+                        max(w["bbox"][2] for w in kept),
+                        max(w["bbox"][3] for w in kept),
+                    ],
+                    "cy": cy,
+                }
+            )
+        if straddle:
+            straddle.sort(key=lambda s: abs(s["cy"] - line_cy))
+            return {"text": straddle[0]["text"], "bbox": straddle[0]["bbox"]}
+
+        # 3. Primary label on the line directly above the region. Only trust
+        # colon-terminated headers here: the row has no left label at all, so
+        # without a ":" we would inherit stray watermark/header noise.
+        primary = _find_upward_label(region, elements, median_text_h)
+        if primary and ":" in primary["text"]:
+            return primary
         return None
 
     # Closest to the region's line first, then the label that ends nearest
@@ -171,7 +240,13 @@ def _label_for_region(region, elements, median_text_h):
     if (not _label_is_field_label(text)) or looks_instruction:
         primary = _find_upward_label(region, elements, median_text_h)
         if primary:
-            text = f"{primary['text']} {text}".strip()
+            if looks_instruction:
+                # Parenthetical instruction: take the primary alone so the
+                # label stays clean ("Name of Board from which...", not the
+                # glued "Name of Board ... (Gujarat Board ...):").
+                text = primary["text"]
+            else:
+                text = f"{primary['text']} {text}".strip()
             bbox = [
                 min(primary["bbox"][0], bbox[0]),
                 min(primary["bbox"][1], bbox[1]),
