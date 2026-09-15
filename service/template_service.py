@@ -343,11 +343,131 @@ def _warp_element_bbox(elements, H, width):
     return out
 
 
+# def _extract_one(field_copy, workspace, w, h):
+#     """Extract a single field respecting checkbox regions."""
+#     vb = field_copy["value_bbox_px"]
+#     cb_match = None
+#     best_iou = 0.0
+#     for cb in workspace["checkboxes"]:
+#         cb_bbox = cb["bbox"]
+#         ix1 = max(vb[0], cb_bbox[0]); iy1 = max(vb[1], cb_bbox[1])
+#         ix2 = min(vb[2], cb_bbox[2]); iy2 = min(vb[3], cb_bbox[3])
+#         if ix2 <= ix1 or iy2 <= iy1:
+#             continue
+#         inter = (ix2 - ix1) * (iy2 - iy1)
+#         union = (vb[2]-vb[0])*(vb[3]-vb[1]) + (cb_bbox[2]-cb_bbox[0])*(cb_bbox[3]-cb_bbox[1]) - inter
+#         r = inter / union if union else 0.0
+#         if r > best_iou:
+#             best_iou, cb_match = r, cb
+#     if cb_match is not None and best_iou >= 0.15:
+#         from util.checkbox_utils import _mark_kind, _classify_window
+#         from util.image_utils import _threshold_gray
+#         bin_img = _threshold_gray(workspace["image"])
+#         mark = _mark_kind(bin_img, cb_match["bbox"])
+#         checked = mark in ("X", "filled", "tick")
+#         return {
+#             "label": field_copy["label"],
+#             "value": "True" if checked else "False",
+#             "value_type": "boolean",
+#             "confidence": cb_match.get("confidence"),
+#             "bbox": [round(x / w, 5) for x in vb],
+#             "source": "checkbox",
+#             "checked": checked,
+#             "mark_type": mark,
+#         }
+
+#     # OCR text extraction inside the value bbox.
+#     #
+#     # Sampling the raw detection region bleeds text from neighboring rows
+#     # (the region is full-width/tall while a value is short).  Instead anchor
+#     # the window to the matched LABEL on the filled form:
+#     #   x from label-right -> region-right
+#     #   y clipped tightly around the label's row band.
+#     # This keeps the value crisp and avoids catching the next row's label.
+#     anchor = find_label_anchor(field_copy["label"], workspace["element_px"])
+
+#     value_window = None
+#     if anchor is not None:
+#         lb = anchor["bbox"]
+#         label_h = max(lb[3] - lb[1], 12)
+#         row_cy = (lb[1] + lb[3]) / 2.0
+#         # Values sit on the label's own line; keep the vertical band tight to
+#         # the anchor row so an adjacent row (e.g. a title above a field) never
+#         # bleeds in.
+#         row_half = max(label_h * 0.65, 10)
+#         gap = max(label_h * 0.25, 4)
+#         x_left = lb[2] + gap
+#         # Cap the window width so a full-page underline cannot swallow text
+#         # belonging to independent right-hand content.
+#         max_width = max((vb[2] - vb[0]) * 0.55, 160)
+#         x_right = min(vb[2], x_left + max_width)
+#         x_left = min(max(x_left, vb[0]), x_right)
+#         value_window = [x_left, row_cy - row_half, x_right, row_cy + row_half]
+#     else:
+#         # No reliable label anchor: use the template region (with tight pad).
+#         value_window = [
+#             vb[0],
+#             vb[1] + (vb[3] - vb[1]) * 0.08,
+#             vb[2],
+#             vb[3] - (vb[3] - vb[1]) * 0.08,
+#         ]
+
+#     def _center_in_region(bbox, region):
+#         cx = (bbox[0] + bbox[2]) / 2.0
+#         cy = (bbox[1] + bbox[3]) / 2.0
+#         return region[0] <= cx <= region[2] and region[1] <= cy <= region[3]
+
+#     matched = []
+#     for e in workspace["element_px"]:
+#         bbox = e["bbox"]
+#         if not _center_in_region(bbox, value_window):
+#             continue
+#         # Exclude the anchor label itself and any text starting before the
+#         # anchor's right edge (a value cannot live left of its own label).
+#         if anchor is not None and (bbox[1] + bbox[3]) / 2.0 is not None:
+#             if e["id"] == anchor["id"]:
+#                 continue
+#             emid_x = (bbox[0] + bbox[2]) / 2.0
+#             lb = anchor["bbox"]
+#             if emid_x < lb[0]:
+#                 continue
+#         matched.append(e)
+#     if not matched:
+#         return {
+#             "label": field_copy["label"],
+#             "value": None,
+#             "value_type": None,
+#             "confidence": None,
+#             "bbox": [round(x / w, 5) for x in vb],
+#             "source": "blank",
+#         }
+#     matched.sort(key=lambda e: (e["bbox"][1], e["bbox"][0]))
+#     value = " ".join(e["text"].strip() for e in matched).strip()
+#     # The printed label often ends with ":" but OCR can glue it onto the start
+#     # of a value (or leave a lone colon breadcrumb); the colon belongs to the
+#     # label, never to the value.
+#     value = re.sub(r"^\s*:+\s*|\s*:+\s*$", "", value)
+#     value = _repair_date_range(value)
+#     # Drop a lone anchor breadcrumb such as ':' if it's the only thing.
+#     if value in (":", ":", ""):
+#         value = None
+#     conf = float(np.mean([e.get("confidence", 0.0) for e in matched]))
+#     return {
+#         "label": field_copy["label"],
+#         "value": value or None,
+#         "value_type": None,
+#         "confidence": round(conf, 4),
+#         "bbox": [round(x / w, 5) for x in vb],
+#         "source": "ocr",
+#     }
+
 def _extract_one(field_copy, workspace, w, h):
-    """Extract a single field respecting checkbox regions."""
+    """Extract a single field respecting checkbox regions and homography alignment."""
     vb = field_copy["value_bbox_px"]
     cb_match = None
     best_iou = 0.0
+    
+    # --- 1. Checkbox Processing ---
     for cb in workspace["checkboxes"]:
         cb_bbox = cb["bbox"]
         ix1 = max(vb[0], cb_bbox[0]); iy1 = max(vb[1], cb_bbox[1])
@@ -359,6 +479,7 @@ def _extract_one(field_copy, workspace, w, h):
         r = inter / union if union else 0.0
         if r > best_iou:
             best_iou, cb_match = r, cb
+            
     if cb_match is not None and best_iou >= 0.15:
         from util.checkbox_utils import _mark_kind, _classify_window
         from util.image_utils import _threshold_gray
@@ -376,63 +497,24 @@ def _extract_one(field_copy, workspace, w, h):
             "mark_type": mark,
         }
 
-    # OCR text extraction inside the value bbox.
-    #
-    # Sampling the raw detection region bleeds text from neighboring rows
-    # (the region is full-width/tall while a value is short).  Instead anchor
-    # the window to the matched LABEL on the filled form:
-    #   x from label-right -> region-right
-    #   y clipped tightly around the label's row band.
-    # This keeps the value crisp and avoids catching the next row's label.
-    anchor = find_label_anchor(field_copy["label"], workspace["element_px"])
-
-    value_window = None
-    if anchor is not None:
-        lb = anchor["bbox"]
-        label_h = max(lb[3] - lb[1], 12)
-        row_cy = (lb[1] + lb[3]) / 2.0
-        # Values sit on the label's own line; keep the vertical band tight to
-        # the anchor row so an adjacent row (e.g. a title above a field) never
-        # bleeds in.
-        row_half = max(label_h * 0.65, 10)
-        gap = max(label_h * 0.25, 4)
-        x_left = lb[2] + gap
-        # Cap the window width so a full-page underline cannot swallow text
-        # belonging to independent right-hand content.
-        max_width = max((vb[2] - vb[0]) * 0.55, 160)
-        x_right = min(vb[2], x_left + max_width)
-        x_left = min(max(x_left, vb[0]), x_right)
-        value_window = [x_left, row_cy - row_half, x_right, row_cy + row_half]
-    else:
-        # No reliable label anchor: use the template region (with tight pad).
-        value_window = [
-            vb[0],
-            vb[1] + (vb[3] - vb[1]) * 0.08,
-            vb[2],
-            vb[3] - (vb[3] - vb[1]) * 0.08,
-        ]
+    # --- 2. Homography-Trusted Text Extraction ---
+    x1, y1, x2, y2 = vb
+    
+    # Use a safe, fixed padding to catch handwriting, but rely on 
+    # the clustering logic below to reject adjacent printed rows.
+    value_window = [x1, y1 - 10, x2, y2 + 10]
 
     def _center_in_region(bbox, region):
         cx = (bbox[0] + bbox[2]) / 2.0
         cy = (bbox[1] + bbox[3]) / 2.0
         return region[0] <= cx <= region[2] and region[1] <= cy <= region[3]
 
-    matched = []
+    raw_matched = []
     for e in workspace["element_px"]:
-        bbox = e["bbox"]
-        if not _center_in_region(bbox, value_window):
-            continue
-        # Exclude the anchor label itself and any text starting before the
-        # anchor's right edge (a value cannot live left of its own label).
-        if anchor is not None and (bbox[1] + bbox[3]) / 2.0 is not None:
-            if e["id"] == anchor["id"]:
-                continue
-            emid_x = (bbox[0] + bbox[2]) / 2.0
-            lb = anchor["bbox"]
-            if emid_x < lb[0]:
-                continue
-        matched.append(e)
-    if not matched:
+        if _center_in_region(e["bbox"], value_window):
+            raw_matched.append(e)
+
+    if not raw_matched:
         return {
             "label": field_copy["label"],
             "value": None,
@@ -441,26 +523,72 @@ def _extract_one(field_copy, workspace, w, h):
             "bbox": [round(x / w, 5) for x in vb],
             "source": "blank",
         }
-    matched.sort(key=lambda e: (e["bbox"][1], e["bbox"][0]))
+
+    # --- 3. ANTI-BLEED: Baseline Clustering ---
+    # Group the captured elements into horizontal rows based on their Y-centers.
+    raw_matched.sort(key=lambda e: (e["bbox"][1] + e["bbox"][3]) / 2.0)
+    
+    lines = []
+    current_line = []
+    last_cy = None
+    
+    for e in raw_matched:
+        cy = (e["bbox"][1] + e["bbox"][3]) / 2.0
+        # If the Y-center is within 15px of the previous word, it's on the same line
+        if last_cy is None or abs(cy - last_cy) < 15:
+            current_line.append(e)
+            if last_cy is None: last_cy = cy
+        else:
+            lines.append(current_line)
+            current_line = [e]
+            last_cy = cy
+    if current_line:
+        lines.append(current_line)
+
+    box_height = y2 - y1
+    matched = []
+    
+    # If it's a standard single-line field (underline or tight box < 45px tall)
+    # and we accidentally swallowed multiple rows, mathematically discard the bleeding rows.
+    if box_height < 45 and len(lines) > 1:
+        target_y = (y1 + y2) / 2.0
+        best_line = None
+        min_dist = float('inf')
+        
+        # Pick the line whose Y-center is closest to the physical center of the bounding box
+        for line in lines:
+            line_cy = np.mean([(e["bbox"][1] + e["bbox"][3]) / 2.0 for e in line])
+            dist = abs(line_cy - target_y)
+            if dist < min_dist:
+                min_dist = dist
+                best_line = line
+        matched = best_line
+    else:
+        # It's a large multiline box (like Address) or only 1 line was found. Keep everything.
+        matched = [e for line in lines for e in line]
+
+    # --- 4. Value Cleanup ---
+    # Sort strictly left-to-right to construct the final sentence
+    matched.sort(key=lambda e: e["bbox"][0])
     value = " ".join(e["text"].strip() for e in matched).strip()
-    # The printed label often ends with ":" but OCR can glue it onto the start
-    # of a value (or leave a lone colon breadcrumb); the colon belongs to the
-    # label, never to the value.
+    
+    # Clean up rogue colons and repair dates
     value = re.sub(r"^\s*:+\s*|\s*:+\s*$", "", value)
     value = _repair_date_range(value)
-    # Drop a lone anchor breadcrumb such as ':' if it's the only thing.
-    if value in (":", ":", ""):
+    
+    if value in (":", ""):
         value = None
+        
     conf = float(np.mean([e.get("confidence", 0.0) for e in matched]))
+    
     return {
         "label": field_copy["label"],
-        "value": value or None,
+        "value": value,
         "value_type": None,
         "confidence": round(conf, 4),
         "bbox": [round(x / w, 5) for x in vb],
         "source": "ocr",
     }
-
 
 def _extract_template_tables(template, aligned_elements, w, h):
     """
