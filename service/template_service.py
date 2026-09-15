@@ -263,6 +263,7 @@ def extract_filled(template, image_path):
         # union box when a field has no line breakdown.
         fcopy = dict(field)
         fcopy["value_bbox_px"] = vb_px
+        fcopy["label_bbox_px"] = norm_to_px(field["label_bbox"]) if field.get("label_bbox") else None
         fcopy["value_boxes_px"] = [
             norm_to_px(b) for b in (field.get("value_bboxes") or [field["value_bbox"]])
         ]
@@ -554,6 +555,19 @@ def _extract_one(field_copy, workspace, w, h):
             value_window = [x1, y1 - 25, x2, y2 + 4]
         else:
             value_window = [x1, y1 - 8, x2, y2 + 8]
+
+        # The printed underline may begin to the RIGHT of where the user
+        # actually starts writing (e.g. "Date of Birth: __/__/____" where the
+        # pre-printed "/ /" separators sit before the underline). Extend the
+        # capture window leftward to just past the field's label so the first
+        # digits of such values are not missed.
+        label_px = field_copy.get("label_bbox_px")
+        if label_px and field_copy.get("kind") == "underline":
+            label_x2 = label_px[2]
+            label_h = max(label_px[3] - label_px[1], 12)
+            min_x = label_x2 + max(label_h * 0.3, 4)
+            if min_x < x1:
+                value_window[0] = min_x
 
         raw_matched = []
         for e in workspace["element_px"]:
