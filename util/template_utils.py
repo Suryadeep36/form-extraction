@@ -47,6 +47,49 @@ def _label_is_field_label(text):
     return True
 
 
+def _find_upward_label(region, elements, median_text_h):
+    """
+    When the text immediately left of a region is rejected (e.g. a
+    parenthetical instruction such as "(Gujarat Board...)"), look straight up
+    (within 1.5 * median_text_h) for the primary label on the line above
+    ("Name of Board from which..."). Returns {"text", "bbox"} or None.
+    """
+    if not elements:
+        return None
+    rb = region["bbox"]
+    x1, y1, x2, y2 = rb
+    region_w = max(x2 - x1, 1.0)
+    lo_y = y1 - 1.5 * median_text_h
+    hi_y = y1
+    candidates = []
+    for el in elements:
+        if el.get("is_value"):
+            continue
+        eb = el.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        cy = el.get("center", [None, None])[1]
+        if cy is None:
+            cy = (eb[1] + eb[3]) / 2.0
+        if not (lo_y <= cy <= hi_y):
+            continue
+        # Share roughly the same horizontal extent as the region.
+        overlap = min(eb[2], x2) - max(eb[0], x1)
+        if overlap <= 0:
+            continue
+        if overlap < (eb[2] - eb[0]) * 0.5 and overlap < region_w * 0.5:
+            continue
+        text = (el.get("text") or "").strip()
+        if not text or not _label_is_field_label(text):
+            continue
+        candidates.append(el)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda e: abs(e["center"][1] - y1))
+    best = candidates[0]
+    return {"text": best.get("text", "").strip(), "bbox": best["bbox"]}
+
+
 def _label_for_region(region, elements, median_text_h):
     """
     Find the printed label immediately to the left of an input region.
@@ -65,11 +108,18 @@ def _label_for_region(region, elements, median_text_h):
     tol = max(8.0, 0.4 * median_text_h)
 
     candidates = []
+    # Distance cap: a label cannot be arbitrarily far to the left. This stops
+    # a wide photo box from hijacking a label several fields away. Cap at
+    # 200px so it can never loosen beyond the old guarantee on large text.
+    max_dist = min(15 * median_text_h, 200)
     for el in elements:
         if el.get("is_value"):
             continue
         eb = el.get("bbox")
         if not eb or len(eb) != 4:
+            continue
+        # A single stray punct glyph (":", ")", ".") is never a label.
+        if len((el.get("text") or "").strip()) < 2:
             continue
         if not (y1 - (y2 - y1) * 0.5 <= el["center"][1] <= y2 + (y2 - y1) * 0.5):
             continue
@@ -77,7 +127,7 @@ def _label_for_region(region, elements, median_text_h):
             continue
         if eb[2] > x1 + tol:
             continue
-        if eb[2] < x1 - 200:
+        if eb[2] < x1 - max_dist:
             continue
         candidates.append(el)
 
@@ -113,6 +163,22 @@ def _label_for_region(region, elements, median_text_h):
         max(e["bbox"][2] for e in cluster),
         max(e["bbox"][3] for e in cluster),
     ]
+
+    # The text right of the underline is often just a parenthetical
+    # instruction ("(Gujarat Board...)") while the real label sits on the line
+    # above ("Name of Board from which..."). Recover it rather than failing.
+    looks_instruction = text.lstrip().startswith("(") and len(text) > 12
+    if (not _label_is_field_label(text)) or looks_instruction:
+        primary = _find_upward_label(region, elements, median_text_h)
+        if primary:
+            text = f"{primary['text']} {text}".strip()
+            bbox = [
+                min(primary["bbox"][0], bbox[0]),
+                min(primary["bbox"][1], bbox[1]),
+                max(primary["bbox"][2], bbox[2]),
+                max(primary["bbox"][3], bbox[3]),
+            ]
+
     return {"text": text, "bbox": bbox}
 
 
@@ -156,16 +222,65 @@ def build_template_fields(doc_rep, image_width, image_height):
     heights = [e.get("height") for e in elements if e.get("height")]
     median_text_h = float(np.median(heights)) if heights else 20.0
 
-    out = []
+    # First pass: label every region; regions with no usable label become
+    # orphans for the vertical-grouping sweep below.
+    entries = []  # [(region, label_info)] — labelled fields
+    orphans = []  # regions that got no usable label
     for region in doc_rep.get("input_regions", []):
         rb = region.get("bbox")
         if not rb or len(rb) != 4:
             continue
         label_info = _label_for_region(region, elements, median_text_h)
-        if not label_info:
+        if label_info:
+            label = label_info["text"]
+            if _label_is_field_label(label):
+                entries.append((region, label_info))
+                continue
+            # A label was found but rejected by the heuristic (e.g. a long
+            # printed instruction). Not a true orphan: drop it instead of
+            # absorbing the row into a neighbouring field.
             continue
-        label = label_info["text"]
-        if not _label_is_field_label(label):
+        # True orphan: no label text at all to the region's left.
+        orphans.append(region)
+
+    # Vertical region grouping: an orphan underline sitting directly below a
+    # labelled underline that shares its x-range belongs to that field (e.g.
+    # the second line of a two-line "Address:" box). Stretch the parent's
+    # value_bbox down over the orphan and drop the orphan.
+    for orphan in orphans:
+        ob = orphan.get("bbox")
+        if not ob or len(ob) != 4:
+            continue
+        if orphan.get("kind") != "underline":
+            continue
+        # A true adoptable orphan is a blank line: it contains no printed
+        # text of its own. If text overlaps it (e.g. a long printed heading
+        # spanning its width that merely rejected the label heuristics),
+        # keep it out of the sweep so it can't sponge a label from above.
+        orphan_w = max(ob[2] - ob[0], 1.0)
+        if any(
+            (eb := el.get("bbox"))
+            and eb[1] < ob[3]
+            and eb[3] > ob[1]
+            and min(eb[2], ob[2]) - max(eb[0], ob[0]) >= orphan_w * 0.3
+            for el in elements
+        ):
+            continue
+        for region, _label in entries:
+            rb = region["bbox"]
+            if region.get("kind") != "underline":
+                continue
+            gap = ob[1] - rb[3]
+            if gap <= 0 or gap > 2 * median_text_h:
+                continue
+            if min(ob[2], rb[2]) > max(ob[0], rb[0]):
+                rb[3] = ob[3]
+                break
+
+    out = []
+    for region, label_info in entries:
+        rb = region.get("bbox")
+        if not rb or len(rb) != 4:
             continue
 
         norm_bbox = [
@@ -182,8 +297,8 @@ def build_template_fields(doc_rep, image_width, image_height):
             lb[3] / image_height,
         ]
         out.append({
-            "label": label,
-            "label_norm": _norm_label(label),
+            "label": label_info["text"],
+            "label_norm": _norm_label(label_info["text"]),
             "label_bbox": [round(v, 5) for v in norm_label],
             "value_bbox": [round(v, 5) for v in norm_bbox],
             "kind": region.get("kind") or "blank",

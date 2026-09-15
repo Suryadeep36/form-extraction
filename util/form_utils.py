@@ -85,7 +85,7 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
         kernel_scale=0.015,
         connect_gap_ratio=0.015,
     )
-    merged = _dedup_underline_segments(h_segments, y_tol=6)
+    merged = _dedup_underline_segments(h_segments, y_tol=6, elements=elements)
 
     for seg in merged:
         bbox = [seg["x1"], seg["y"] - pad_y, seg["x2"], seg["y"] + pad_y]
@@ -106,7 +106,7 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
         )
 
     # ---- 2. box fields ----------------------------------------------------
-    for box in _detect_box_regions(gray):
+    for box in _detect_box_regions(gray, elements):
         if _inside_any_table(box["bbox"], table_bboxes, overlap_ratio=0.45):
             continue
         if any(_iou(box["bbox"], cb["bbox"]) > 0.4 for cb in checkboxes):
@@ -176,7 +176,25 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
     return regions
 
 
-def _detect_box_regions(gray, min_ratio=0.004, max_ratio=0.22):
+def _box_contains_text(bbox, elements):
+    """True when an OCR element's center falls inside the box. A photo/logo
+    frame carries printed text inside ("Paste your passport photograph here")
+    while a genuine input box on an empty form is blank."""
+    if not elements:
+        return False
+    bx1, by1, bx2, by2 = bbox
+    for el in elements:
+        eb = el.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        cx = (eb[0] + eb[2]) / 2.0
+        cy = (eb[1] + eb[3]) / 2.0
+        if bx1 <= cx <= bx2 and by1 <= cy <= by2:
+            return True
+    return False
+
+
+def _detect_box_regions(gray, elements=None, min_ratio=0.004, max_ratio=0.22):
     """
     Detect small closed rectangles that are candidate input boxes
     (e.g. "[______]") rather than large table borders.
@@ -221,6 +239,12 @@ def _detect_box_regions(gray, min_ratio=0.004, max_ratio=0.22):
 
         # Hollow box: outline exists but interior is mostly empty.
         if interior_dark > 0.6:
+            continue
+
+        # Photo-frame / illustration boxes carry printed instructions inside;
+        # genuine input boxes are empty. Drop any box that already has OCR
+        # text so it cannot hijack a nearby label (e.g. the GENDER photo box).
+        if _box_contains_text([x, y, x + cw, y + ch], elements):
             continue
 
         boxes.append(
@@ -314,26 +338,68 @@ def _inside_any_table(bbox, table_bboxes, overlap_ratio=0.5):
     return False
 
 
-def _dedup_underline_segments(segments, y_tol=6, gap_tol=4.0):
+def _gap_between_lines_has_text(line_a, line_b, elements, y_tol):
+    """
+    True when a *non-separator* OCR element occupies the gap between two
+    collinear horizontal segments. Keeps adjacent underline fields apart so
+    "Total Marks ___ Out of ___" becomes two keys. Text that is only '/'
+    or '-' is a date-field separator ("___ / ___ / ____") and does NOT block.
+    """
+    if not elements:
+        return False
+    left, right = sorted([line_a, line_b], key=lambda s: s["x1"])
+    gx1, gx2 = left["x2"], right["x1"]
+    if gx1 >= gx2:
+        return False  # lines already overlap; no real gap
+    gy = left["y"]
+    band = max(12.0, 2.5 * y_tol)
+    y_lo, y_hi = gy - band, gy + band
+    for el in elements:
+        eb = el.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        cy = el.get("center", [None, None])[1]
+        if cy is None:
+            cy = (eb[1] + eb[3]) / 2.0
+        if not (y_lo <= cy <= y_hi):
+            continue
+        if eb[2] <= gx1 + 2.0 or eb[0] >= gx2 - 2.0:
+            continue
+        text = (el.get("text") or "").strip()
+        if not text:
+            continue
+        if re.fullmatch(r"[\\/‑–—\-\u2212]+", text):
+            continue  # date-field separator, merge across it
+        return True
+    return False
+
+
+def _dedup_underline_segments(segments, y_tol=6, gap_tol=4.0, elements=None):
     """
     Merge horizontal line segments that are effectively the same printed
     underline: same row (y within y_tol) whose x-ranges touch or overlap
     (gap <= gap_tol). Segments separated by a real gap keep their own region
-    so "Period From ___ to ___" yields two distinct keys/underlines.
+    so "Period From ___ to ___" yields two distinct keys/underlines. OCR text
+    sitting in the gap (a printed label such as "Out of") is also a barrier;
+    a bare "/" or "-" separator is not.
     """
     segs = sorted(segments, key=lambda s: (s["y"], s["x1"]))
     merged = []
     for seg in segs:
+        placed = False
         for kept in merged:
             if abs(kept["y"] - seg["y"]) > y_tol:
                 continue
             if seg["x1"] <= kept["x2"] + gap_tol and kept["x1"] <= seg["x2"] + gap_tol:
+                if _gap_between_lines_has_text(kept, seg, elements, y_tol):
+                    continue  # a label sits between them -> keep separate
                 kept["x1"] = min(kept["x1"], seg["x1"])
                 kept["x2"] = max(kept["x2"], seg["x2"])
                 kept["length"] = kept["x2"] - kept["x1"]
                 kept["y"] = (kept["y"] + seg["y"]) / 2.0
+                placed = True
                 break
-        else:
+        if not placed:
             merged.append(dict(seg))
     for s in merged:
         s["length"] = s["x2"] - s["x1"]
