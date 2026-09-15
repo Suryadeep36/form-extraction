@@ -256,6 +256,9 @@ def extract_filled(template, image_path):
         fcopy = dict(field)
         fcopy["value_bbox_px"] = vb_px
         result = _extract_one(fcopy, workspace, w, h)
+        # Surface the COMMITTED template value_bbox (the tight field region),
+        # not the OCR extraction window `_extract_one` expands vertically.
+        result["bbox"] = field["value_bbox"]
         extracted.append(result)
 
     # --- Extract each table's cells --------------------------------------
@@ -270,9 +273,18 @@ def extract_filled(template, image_path):
         "alignment": _json_safe(transform),
         "element_count": len(doc_rep["elements"]),
     }
+    # The template value bboxes are normalized to the TEMPLATE page; the warped
+    # image shown in the UI must live in that same coordinate space or the
+    # frontend overlay cannot line up. Homography/similarity warps already use
+    # (w, h); the identity fallback leaves the raw scan at its own size, so
+    # resize it to the template canvas before encoding.
+    display = workspace["image"]
+    if tuple(display.shape[:2]) != (h, w):
+        display = cv2.resize(display, (w, h))
+
     # Optionally include the warped image for debugging.
     try:
-        ok, buf = cv2.imencode(".jpg", workspace["image"])
+        ok, buf = cv2.imencode(".jpg", display)
         if ok:
             out["warped_image_data_url"] = (
                 "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode()

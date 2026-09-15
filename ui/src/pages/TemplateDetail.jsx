@@ -1,33 +1,102 @@
-import { useEffect, useState, useRef } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { API_BASE } from '../api.js';
+import { useEffect, useState, useRef, useLayoutEffect } from "react";
+import { Link, useParams } from "react-router-dom";
+import { API_BASE } from "../api.js";
 
 function formatDate(iso) {
-  if (!iso) return '—';
+  if (!iso) return "—";
   try {
     return new Date(iso).toLocaleString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
+      year: "numeric",
+      month: "short",
+      day: "numeric",
     });
   } catch {
     return iso;
   }
 }
 
-function FieldCard({ field }) {
+/* ------------------------------------------------------------------ */
+/*  Overlay box — positioned via px offsets relative to the actual     */
+/*  rendered image box (measured with getBoundingClientRect), so it     */
+/*  aligns no matter how the image is scaled/capped.                   */
+/* ------------------------------------------------------------------ */
+
+function OverlayBox({
+  bbox,
+  color = "#3b82f6",
+  fill = "0.12",
+  label,
+  z = 10,
+  frame,
+}) {
+  if (!bbox || bbox.length !== 4 || !frame) return null;
+  const [x1, y1, x2, y2] = bbox;
+  const left = frame.ox + x1 * frame.w;
+  const top = frame.oy + y1 * frame.h;
+  const style = {
+    left: left,
+    top: top,
+    width: (x2 - x1) * frame.w,
+    height: (y2 - y1) * frame.h,
+  };
   return (
-    <div className="bg-gray-50 rounded p-2 text-sm border border-gray-100">
+    <div
+      className="absolute rounded-sm pointer-events-none transition-opacity duration-100"
+      style={{
+        ...style,
+        border: `2px solid ${color}`,
+        backgroundColor: color + hexAlpha(fill),
+        zIndex: z,
+      }}
+    >
+      {label && (
+        <span
+          className="absolute -top-5 left-0 text-[10px] font-semibold text-white px-1 py-0.5 rounded shadow-md whitespace-nowrap"
+          style={{ backgroundColor: color, zIndex: z + 1 }}
+        >
+          {label}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function hexAlpha(a) {
+  return Math.round(a * 255)
+    .toString(16)
+    .padStart(2, "0");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Field card — highlights on hover                                   */
+/* ------------------------------------------------------------------ */
+
+function FieldCard({ field, onHover, onLeave }) {
+  const hasBbox = field.bbox && field.bbox.length === 4;
+  return (
+    <div
+      className={`bg-gray-50 rounded p-2 text-sm border transition-all duration-100 ${
+        hasBbox
+          ? "cursor-pointer hover:border-blue-400 hover:shadow-sm"
+          : "border-gray-100"
+      }`}
+      onMouseEnter={() =>
+        hasBbox &&
+        onHover?.({
+          label: field.label,
+          boxes: [{ bbox: field.bbox, color: "#22c55e" }],
+        })
+      }
+      onMouseLeave={() => onLeave?.()}
+    >
       <span className="block text-gray-500 text-xs mb-1 break-words">
         {field.label}
       </span>
       <div className="flex items-center gap-2">
         <span className="font-medium break-words text-gray-900">
-          {field.value ?? (
-            <span className="italic text-gray-400">null</span>
-          )}
+          {field.value ?? <span className="italic text-gray-400">null</span>}
         </span>
-        {field.value_type && field.value_type !== 'text' && (
+        {field.value_type && field.value_type !== "text" && (
           <span className="text-[9px] uppercase tracking-wide bg-gray-200 text-gray-500 px-1 py-0.5 rounded">
             {field.value_type}
           </span>
@@ -47,7 +116,11 @@ function FieldCard({ field }) {
   );
 }
 
-function TableView({ table }) {
+/* ------------------------------------------------------------------ */
+/*  Table view — cells highlight on hover                              */
+/* ------------------------------------------------------------------ */
+
+function TableView({ table, onHover, onLeave }) {
   if (!table.cells || table.cells.length === 0) {
     return <p className="text-sm text-gray-400 italic">No cells.</p>;
   }
@@ -55,7 +128,7 @@ function TableView({ table }) {
   const rows = table.n_rows || 0;
   const columns = table.n_cols || 0;
   const grid = Array.from({ length: rows }, () =>
-    Array.from({ length: columns }, () => null)
+    Array.from({ length: columns }, () => null),
   );
 
   for (const cell of table.cells) {
@@ -75,30 +148,41 @@ function TableView({ table }) {
         <tbody className="divide-y divide-gray-200 bg-white">
           {grid.map((rowCells, rIdx) => (
             <tr key={rIdx} className="divide-x divide-gray-200">
-              {rowCells.map((cell, cIdx) => (
-                <td
-                  key={cIdx}
-                  className={`pl-2 pr-1 py-1 align-top ${
-                    cell ? '' : 'bg-gray-50'
-                  }`}
-                >
-                  {cell ? (
-                    <>
-                      <div className="whitespace-nowrap">
-                        {cell.text ?? (
-                          <span className="italic text-gray-400">null</span>
-                        )}
-                      </div>
-                      <div className="text-[9px] text-gray-300 mt-0.5">
-                        r{cell.row}c{cell.column}
-                        {cell.row_span > 1 || cell.column_span > 1
-                          ? ` (${cell.row_span}x${cell.column_span})`
-                          : ''}
-                      </div>
-                    </>
-                  ) : null}
-                </td>
-              ))}
+              {rowCells.map((cell, cIdx) => {
+                const hasBbox = cell?.bbox && cell.bbox.length === 4;
+                return (
+                  <td
+                    key={cIdx}
+                    className={`pl-2 pr-1 py-1 align-top transition-colors duration-75 ${
+                      hasBbox ? "cursor-pointer hover:bg-blue-50" : ""
+                    } ${cell ? "" : "bg-gray-50"}`}
+                    onMouseEnter={() =>
+                      hasBbox &&
+                      onHover?.({
+                        label: `r${cell.row}c${cell.column}${cell.text ? `: ${cell.text}` : ""}`,
+                        boxes: [{ bbox: cell.bbox, color: "#3b82f6" }],
+                      })
+                    }
+                    onMouseLeave={() => onLeave?.()}
+                  >
+                    {cell ? (
+                      <>
+                        <div className="whitespace-nowrap">
+                          {cell.text ?? (
+                            <span className="italic text-gray-400">null</span>
+                          )}
+                        </div>
+                        <div className="text-[9px] text-gray-300 mt-0.5">
+                          r{cell.row}c{cell.column}
+                          {cell.row_span > 1 || cell.column_span > 1
+                            ? ` (${cell.row_span}x${cell.column_span})`
+                            : ""}
+                        </div>
+                      </>
+                    ) : null}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
@@ -107,13 +191,38 @@ function TableView({ table }) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Main page                                                          */
+/* ------------------------------------------------------------------ */
+
 export default function TemplateDetail() {
   const { id } = useParams();
   const [template, setTemplate] = useState(null);
   const [error, setError] = useState(null);
   const [loadingExtract, setLoadingExtract] = useState(false);
   const [result, setResult] = useState(null);
+  const [hovered, setHovered] = useState(null);
+  const [frame, setFrame] = useState(null);
   const fileRef = useRef(null);
+  const imgBoxRef = useRef(null);
+  const wrapBoxRef = useRef(null);
+
+  // Measure the actually-rendered image box (offset + size within its
+  // wrapper) whenever a new result arrives or the pointer lands on a field.
+  useLayoutEffect(() => {
+    const im = imgBoxRef.current;
+    const wr = wrapBoxRef.current;
+    if (!im || !wr) return;
+    const ir = im.getBoundingClientRect();
+    const w = wr.getBoundingClientRect();
+    if (!ir.width || !ir.height) return;
+    setFrame({
+      ox: ir.left - w.left,
+      oy: ir.top - w.top,
+      w: ir.width,
+      h: ir.height,
+    });
+  }, [result, hovered]);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,12 +230,13 @@ export default function TemplateDetail() {
       setError(null);
       try {
         const res = await fetch(`${API_BASE}/templates/${id}`);
-        if (!res.ok) throw new Error(`Server responded with status: ${res.status}`);
+        if (!res.ok)
+          throw new Error(`Server responded with status: ${res.status}`);
         const json = await res.json();
         if (!cancelled) setTemplate(json.template || null);
       } catch (err) {
-        console.error('Failed to load template:', err);
-        if (!cancelled) setError(err.message || 'Failed to load template.');
+        console.error("Failed to load template:", err);
+        if (!cancelled) setError(err.message || "Failed to load template.");
       }
     })();
     return () => {
@@ -143,11 +253,11 @@ export default function TemplateDetail() {
     setResult(null);
     try {
       const formData = new FormData();
-      formData.append('image', file);
-      formData.append('template_id', id);
+      formData.append("image", file);
+      formData.append("template_id", id);
 
       const res = await fetch(`${API_BASE}/extract-filled`, {
-        method: 'POST',
+        method: "POST",
         body: formData,
       });
       if (!res.ok) {
@@ -163,8 +273,8 @@ export default function TemplateDetail() {
       const json = await res.json();
       setResult(json.extraction);
     } catch (err) {
-      console.error('Failed to extract filled form:', err);
-      setError(err.message || 'Failed to extract filled form.');
+      console.error("Failed to extract filled form:", err);
+      setError(err.message || "Failed to extract filled form.");
     } finally {
       setLoadingExtract(false);
     }
@@ -186,7 +296,10 @@ export default function TemplateDetail() {
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
           <span className="font-bold">Error: </span> {error}
         </div>
-        <Link to="/templates" className="inline-block mt-4 text-sm font-semibold text-blue-600 hover:text-blue-800">
+        <Link
+          to="/templates"
+          className="inline-block mt-4 text-sm font-semibold text-blue-600 hover:text-blue-800"
+        >
           ← Back to templates
         </Link>
       </div>
@@ -206,28 +319,76 @@ export default function TemplateDetail() {
           >
             ← All templates
           </Link>
-          <h1 className="text-3xl font-bold text-gray-900 mt-1">{template.name}</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mt-1">
+            {template.name}
+          </h1>
           <p className="text-gray-600 mt-1 text-sm">
             {template.source_filename} · {template.field_count} field(s)
-            {template.table_count > 0 ? ` · ${template.table_count} table(s)` : ''}
+            {template.table_count > 0
+              ? ` · ${template.table_count} table(s)`
+              : ""}
           </p>
         </div>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Blank form preview */}
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">
-            Blank Form Template
-          </h3>
-          <img
-            src={`${API_BASE}/templates/${id}/image`}
-            alt={template.name}
-            className="w-full rounded border border-gray-100"
-          />
-          <p className="text-xs text-gray-400 mt-2">
-            Created {formatDate(template.created_at)}
-          </p>
+        {/* Sticky preview: aligned filled form (hover overlay) + blank template */}
+        <div>
+          <div className="lg:sticky lg:top-6 flex flex-col gap-4">
+            {result?.warped_image_data_url && (
+              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">
+                  Aligned Filled Form
+                </h3>
+                <div className="rounded border border-gray-100 overflow-hidden bg-gray-50 text-center">
+                  <div
+                    ref={wrapBoxRef}
+                    className="relative inline-block align-top"
+                  >
+                    <img
+                      ref={imgBoxRef}
+                      src={result.warped_image_data_url}
+                      alt="Aligned filled form"
+                      className="max-h-[60vh] w-auto block"
+                    />
+                    {/* Bbox overlay layer — shown when hovering fields / cells */}
+                    {hovered && hovered.boxes && frame && (
+                      <div className="absolute inset-0 pointer-events-none">
+                        {hovered.boxes.map((box, idx) => (
+                          <OverlayBox
+                            key={idx}
+                            bbox={box.bbox}
+                            color={box.color}
+                            fill={0.15}
+                            label={idx === 0 ? hovered.label : null}
+                            frame={frame}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-400 mt-2 italic">
+                  Hover over fields or table cells in the results to highlight
+                  their location.
+                </p>
+              </div>
+            )}
+
+            <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">
+                Blank Form Template
+              </h3>
+              <img
+                src={`${API_BASE}/templates/${id}/image`}
+                alt={template.name}
+                className="w-full rounded border border-gray-100"
+              />
+              <p className="text-xs text-gray-400 mt-2">
+                Created {formatDate(template.created_at)}
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Upload filled form + results */}
@@ -248,11 +409,11 @@ export default function TemplateDetail() {
                 // disabled={!fileRef.current?.files?.length || loadingExtract}
                 className={`flex items-center justify-center px-6 py-2.5 rounded-md font-semibold text-white transition-all whitespace-nowrap ${
                   !fileRef.current?.files?.length || loadingExtract
-                    ? 'bg-blue-300 cursor-not-allowed'
-                    : 'bg-blue-600 hover:bg-blue-700 shadow-md'
+                    ? "bg-blue-300 cursor-not-allowed"
+                    : "bg-blue-600 hover:bg-blue-700 shadow-md"
                 }`}
               >
-                {loadingExtract ? 'Extracting…' : 'Extract Key / Values'}
+                {loadingExtract ? "Extracting…" : "Extract Key / Values"}
               </button>
             </div>
             <p className="text-xs text-gray-400 mt-2">
@@ -271,26 +432,38 @@ export default function TemplateDetail() {
             <div className="flex flex-col gap-4">
               {result.alignment?.method && (
                 <div className="text-xs text-gray-500">
-                  Alignment: <span className="font-semibold">{result.alignment.method}</span>
+                  Alignment:{" "}
+                  <span className="font-semibold">
+                    {result.alignment.method}
+                  </span>
                 </div>
               )}
 
+              {/* ---- Key / Values ---- */}
               {fields && fields.length > 0 && (
                 <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
                       Key / Values
                     </h3>
-                    <span className="text-xs text-gray-400">{fields.length} field(s)</span>
+                    <span className="text-xs text-gray-400">
+                      {fields.length} field(s)
+                    </span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {fields.map((field, idx) => (
-                      <FieldCard key={idx} field={field} />
+                      <FieldCard
+                        key={idx}
+                        field={field}
+                        onHover={setHovered}
+                        onLeave={() => setHovered(null)}
+                      />
                     ))}
                   </div>
                 </div>
               )}
 
+              {/* ---- Tables ---- */}
               {tables && tables.length > 0 && (
                 <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col gap-4">
                   <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
@@ -299,25 +472,16 @@ export default function TemplateDetail() {
                   {tables.map((table, idx) => (
                     <div key={idx} className="flex flex-col gap-1">
                       <div className="text-xs text-gray-500">
-                        {table.id} · {table.n_rows}×{table.n_cols} ·{' '}
-                        {table.structure_source || 'unknown'} structure
+                        {table.id} · {table.n_rows}×{table.n_cols} ·{" "}
+                        {table.structure_source || "unknown"} structure
                       </div>
-                      <TableView table={table} />
+                      <TableView
+                        table={table}
+                        onHover={setHovered}
+                        onLeave={() => setHovered(null)}
+                      />
                     </div>
                   ))}
-                </div>
-              )}
-
-              {result.warped_image_data_url && (
-                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">
-                    Aligned Filled Form
-                  </h3>
-                  <img
-                    src={result.warped_image_data_url}
-                    alt="Aligned filled form"
-                    className="w-full rounded border border-gray-100"
-                  />
                 </div>
               )}
             </div>
