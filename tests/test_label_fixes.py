@@ -158,6 +158,25 @@ def test_single_underline_stays_single_value_box():
         check("no label-row box", bboxes[0][1] * 1600 >= 1205, bboxes[0])
 
 
+def test_underline_blank_not_grouped_as_multiline():
+    # Invariant: only same-kind input rows (underline + underline) share one
+    # value array; an underline stacking a blank is NOT a multiline input, so
+    # the blank is never merged into the underline field.
+    elements = [
+        {"text": "Address:", "bbox": [94, 1197, 181, 1221], "center": [137, 1209]}
+    ]
+    regions = [
+        {"bbox": [90, 1238, 761, 1276], "kind": "underline"},
+        {"bbox": [90, 1290, 761, 1326], "kind": "blank"},
+    ]
+    fields = _run(regions, elements)
+    check("underline + blank -> one field", len(fields) == 1, [f["label"] for f in fields])
+    if fields:
+        bboxes = fields[0].get("value_bboxes", [])
+        check("blank not merged in (1 value box)", len(bboxes) == 1, [len(bboxes)])
+        check("box stays on the underline row", bboxes[0][1] * 1600 >= 1205, bboxes[0])
+
+
 def test_orphan_over_headline_text_not_adopted():
     # "Qualifying Examination Marks..." underline is wider than its label and
     # overlaps printed text -> it is a heading, not the second address line,
@@ -185,6 +204,7 @@ def main():
     test_header_noise_not_taken_as_upward_label()
     test_stacked_orphan_underline_adopted_into_address_field()
     test_single_underline_stays_single_value_box()
+    test_underline_blank_not_grouped_as_multiline()
     test_orphan_over_headline_text_not_adopted()
 
     if FAILURES:

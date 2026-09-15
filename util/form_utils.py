@@ -93,8 +93,15 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
         if _inside_any_table(bbox, table_bboxes, overlap_ratio=0.45):
             continue
 
-        # A field underline is typically not a full-width page rule.
-        if seg["length"] > w * 0.75:
+        # A field underline is typically not a full-width page rule. Only skip
+        # segments that span essentially the whole page AND start at the left
+        # margin; a long field underline (e.g. the second address row, which
+        # starts right of its label) must survive.
+        if (
+            seg["length"] > w * 0.75
+            and seg["x1"] < w * 0.12
+            and seg["x2"] > w * 0.85
+        ):
             continue
 
         raw.append(
