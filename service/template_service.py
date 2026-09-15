@@ -517,7 +517,13 @@ def _extract_one(field_copy, workspace, w, h):
         cy = (bbox[1] + bbox[3]) / 2.0
         return region[0] <= cx <= region[2] and region[1] <= cy <= region[3]
 
-    # NEW: Global label collision check
+    def _excluded(token_bbox):
+        # Never exclude content squarely inside this field's value area even
+        # when it also overlaps a (full-width) registered label for this field.
+        if any(_center_in_region(token_bbox, b) for b in boxes):
+            return False
+        return _overlaps_any_label(token_bbox)
+
     def _overlaps_any_label(bbox):
         for l_px in workspace.get("global_labels_px", []):
             ix1 = max(bbox[0], l_px[0]); iy1 = max(bbox[1], l_px[1])
@@ -526,20 +532,24 @@ def _extract_one(field_copy, workspace, w, h):
                 continue
             inter = (ix2 - ix1) * (iy2 - iy1)
             area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
-            # If more than 30% of the OCR element is inside ANY known label, ignore it
             if area > 0 and inter / area > 0.3:
                 return True
         return False
 
+    # Flatten each OCR element into its constituent tokens. Word-level boxes
+    # split multi-field rows ("23 Out of 50") so that "23" lands in one blank
+    # and "50" in the other; elements without word data stay as a single token.
+    def _tokens(elem):
+        words = [w for w in (elem.get("words") or []) if (w.get("text") or "").strip()]
+        return words if words else [elem]
+
     collected = []
-    seen_ids = set()
+    seen_keys = set()
+
     for box in boxes:
         x1, y1, x2, y2 = box
         box_height = y2 - y1
-        
-        # NEW: Asymmetric Padding
-        # If it's a thin underline (height < 15), users write ON it (above). 
-        # We look up higher, but restrict looking down so we don't swallow the row below.
+
         if box_height < 15:
             value_window = [x1, y1 - 25, x2, y2 + 4]
         else:
@@ -547,43 +557,38 @@ def _extract_one(field_copy, workspace, w, h):
 
         raw_matched = []
         for e in workspace["element_px"]:
-            if id(e) in seen_ids:
-                continue
-            if not _center_in_region(e["bbox"], value_window):
-                continue
-            if _overlaps_any_label(e["bbox"]): # Exclude ALL registered labels
-                continue
-            raw_matched.append(e)
+            for tok in _tokens(e):
+                tb = tok.get("bbox")
+                if not tb or len(tb) != 4:
+                    continue
+                if not _center_in_region(tb, value_window):
+                    continue
+                if _excluded(tb):
+                    continue
+                raw_matched.append((e, tok, tb))
 
         if not raw_matched:
             continue
 
-        # --- 3. ANTI-BLEED: Baseline Clustering ---
-        raw_matched.sort(key=lambda e: (e["bbox"][1] + e["bbox"][3]) / 2.0)
+        raw_matched.sort(key=lambda t: (t[2][1] + t[2][3]) / 2.0)
 
         lines = []
         current_line = []
         last_cy = None
 
-        for e in raw_matched:
-            cy = (e["bbox"][1] + e["bbox"][3]) / 2.0
+        for (e, tok, tb) in raw_matched:
+            cy = (tb[1] + tb[3]) / 2.0
             if last_cy is None or abs(cy - last_cy) < 15:
-                current_line.append(e)
+                current_line.append((e, tok, tb))
                 if last_cy is None:
                     last_cy = cy
             else:
                 lines.append(current_line)
-                current_line = [e]
+                current_line = [(e, tok, tb)]
                 last_cy = cy
         if current_line:
             lines.append(current_line)
 
-        # Each registered per-line underline box wraps exactly ONE physical
-        # line, so if a neighbouring row leaked into the window (e.g. the
-        # "ACPC Details :" header below Full Name), keep only the line whose
-        # center is closest to the box's center. Legacy fields without
-        # per-line boxes fall back to the same heuristic when the box is
-        # tight; genuinely multi-row box/blank regions keep everything.
         per_line_contract = (
             field_copy.get("value_bboxes") is not None
             and field_copy.get("kind") == "underline"
@@ -594,19 +599,20 @@ def _extract_one(field_copy, workspace, w, h):
             min_dist = float('inf')
 
             for line in lines:
-                line_cy = np.mean([(e["bbox"][1] + e["bbox"][3]) / 2.0 for e in line])
+                line_cy = np.mean([(t[2][1] + t[2][3]) / 2.0 for t in line])
                 dist = abs(line_cy - target_y)
                 if dist < min_dist:
                     min_dist = dist
                     best_line = line
             picked = best_line
         else:
-            picked = [e for line in lines for e in line]
+            picked = [t for line in lines for t in line]
 
-        for e in picked:
-            if id(e) not in seen_ids:
-                seen_ids.add(id(e))
-                collected.append(e)
+        for (e, tok, tb) in picked:
+            key = (id(e), id(tok))
+            if key not in seen_keys:
+                seen_keys.add(key)
+                collected.append(tok)
 
     if not collected:
         return {
