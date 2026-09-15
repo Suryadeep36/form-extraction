@@ -364,32 +364,27 @@ def build_template_fields(doc_rep, image_width, image_height):
         kind = region.get("kind") or "blank"
         rb = list(rb)
 
-        # One value box per physical line. Blank/box fields keep a single box;
-        # an underline grows an array so multi-line fields (e.g. "Address :")
-        # store each writing row as its own box instead of a single tall
-        # rectangle that swallows a neighbour such as Pin.
+        # One value box per physical line. A label on its own row above the
+        # underline (e.g. "Name :" / "______") is NOT an extra value line: the
+        # value area is the underline(s). Only when a field's value really
+        # spans several printed rows (an underline plus stacked orphans) do we
+        # keep one box per row.
         boxes = [rb]
         if kind == "underline":
-            lb = label_info["bbox"]
-            if lb[3] <= rb[1]:
-                # Label occupies its own line directly above the underline
-                # ("Address :" on line 1): the value also starts on that row.
-                boxes = [[rb[0], lb[1], rb[2], lb[3]]] + boxes
             parents = adopted_rows.get(id(region))
             if parents:
-                # Replace the merged underline with the parent row, then add
-                # its adopted orphan line(s).
-                boxes[-1] = list(parents[0][0])
+                # The merged band = parent underline + adopted orphans; restore
+                # one box per row.
+                boxes = [list(parents[0][0])]
                 boxes.extend(list(o) for _, o in parents)
             # Enlarge each line vertically (handwriting stands on the line),
             # clamping against OTHER fields' regions so a box never covers or
-            # is covered by a neighbouring row. A label that OVERLAPS the
-            # underline (e.g. "Name of Board ..." printed across its own line)
-            # is not a block layout and stays a single line.
+            # is covered by a neighbouring row. Padding below is kept tiny so a
+            # box's window does not reach the next row's printed label.
             for b in boxes:
                 bh = max(b[3] - b[1], 6.0)
                 pad_up = min(0.9 * median_text_h, 0.6 * bh)
-                pad_down = min(0.4 * median_text_h, 0.35 * bh)
+                pad_down = min(0.2 * median_text_h, 0.15 * bh)
                 above = [r["bbox"][3] for r, _ in entries
                          if r is not region and r["bbox"][3] <= b[1] + 2.0]
                 below = [r["bbox"][1] for r, _ in entries

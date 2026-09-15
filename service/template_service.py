@@ -578,7 +578,17 @@ def _extract_one(field_copy, workspace, w, h):
         if current_line:
             lines.append(current_line)
 
-        if box_height < 45 and len(lines) > 1:
+        # Each registered per-line underline box wraps exactly ONE physical
+        # line, so if a neighbouring row leaked into the window (e.g. the
+        # "ACPC Details :" header below Full Name), keep only the line whose
+        # center is closest to the box's center. Legacy fields without
+        # per-line boxes fall back to the same heuristic when the box is
+        # tight; genuinely multi-row box/blank regions keep everything.
+        per_line_contract = (
+            field_copy.get("value_bboxes") is not None
+            and field_copy.get("kind") == "underline"
+        )
+        if len(lines) > 1 and (per_line_contract or box_height < 45):
             target_y = (y1 + y2) / 2.0
             best_line = None
             min_dist = float('inf')

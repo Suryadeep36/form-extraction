@@ -119,19 +119,26 @@ def test_stacked_orphan_underline_adopted_into_address_field():
         check("orphan adopted label", f["label"] == "Address:", repr(f["label"]))
         # x is normalized by image_width (1096), y by image_height (1600).
         x1, y1, x2, y2 = f["value_bbox"]
-        check("value starts at the label row", y1 * 1600 <= 1197 + 1, f["value_bbox"])
-        check("value covers second line", y2 * 1600 >= 1326 - 1, f["value_bbox"])
+        check("value starts at the parent row, not the label row", 1210 <= y1 * 1600 <= 1240, f["value_bbox"])
+        check("value covers the adopted second line", y2 * 1600 >= 1326 - 1, f["value_bbox"])
         check("x-range still the underline", abs(x1 * 1096 - 90) < 2 and abs(x2 * 1096 - 761) < 2, f["value_bbox"])
-        # Three line boxes: label row, parent underline, orphan underline.
+        # Two line boxes: parent underline + adopted orphan. The label's own
+        # row ("Address :" line) is NOT a value row.
         bboxes = f.get("value_bboxes", [])
-        check("value_bboxes has 3 lines", len(bboxes) == 3, [len(bboxes)])
+        check("value_bboxes has 2 lines", len(bboxes) == 2, [len(bboxes)])
+        for i, nb in enumerate(bboxes):
+            check(
+                f"box {i} y below label row",
+                nb[1] * 1600 >= 1205,
+                nb,
+            )
 
 
-def test_address_single_underline_spans_label_row():
-    # The real form: "Address :" on line 1, one wide underline on line 2.
-    # value_bboxes keeps each row as its own box; value_bbox is the union.
+def test_single_underline_stays_single_value_box():
+    # The real form: "Full Name :" on line 1, one wide underline on line 2.
+    # The label row is NOT a value row: one box, the underline, is detected.
     elements = [
-        {"text": "Address:", "bbox": [94, 1197, 181, 1221], "center": [137, 1209]}
+        {"text": "Name :", "bbox": [94, 1197, 181, 1221], "center": [137, 1209]}
     ]
     regions = [
         {"bbox": [90, 1237.5, 761, 1275.5], "kind": "underline"},
@@ -141,18 +148,14 @@ def test_address_single_underline_spans_label_row():
     if fields:
         f = fields[0]
         x1, y1, x2, y2 = f["value_bbox"]
-        check("box starts at the label's line", y1 * 1600 <= 1197 + 2, f["value_bbox"])
+        check("box stays on the underline row", y1 * 1600 >= 1205, f["value_bbox"])
         check("box covers the underline line", y2 * 1600 >= 1275.5 - 2, f["value_bbox"])
         check("horizontal span kept", abs(x1 * 1096 - 90) < 2 and abs(x2 * 1096 - 761) < 2, f["value_bbox"])
-        # Two line boxes: label row + underline.
+        # Exactly one value box: the underline. No spurious box right of
+        # "Name :" on the label row.
         bboxes = f.get("value_bboxes", [])
-        check("value_bboxes has 2 lines", len(bboxes) == 2, [len(bboxes)])
-        for i, nb in enumerate(bboxes):
-            check(
-                f"box {i} x-span",
-                abs(nb[0] * 1096 - 90) < 3 and abs(nb[2] * 1096 - 761) < 3,
-                nb,
-            )
+        check("value_bboxes has exactly 1 line", len(bboxes) == 1, [len(bboxes)])
+        check("no label-row box", bboxes[0][1] * 1600 >= 1205, bboxes[0])
 
 
 def test_orphan_over_headline_text_not_adopted():
@@ -181,7 +184,7 @@ def main():
     test_address_label_found_directly_above()
     test_header_noise_not_taken_as_upward_label()
     test_stacked_orphan_underline_adopted_into_address_field()
-    test_address_single_underline_spans_label_row()
+    test_single_underline_stays_single_value_box()
     test_orphan_over_headline_text_not_adopted()
 
     if FAILURES:
