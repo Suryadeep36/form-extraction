@@ -505,7 +505,13 @@ def _extract_template_tables(template, aligned_elements, w, h):
                 print(f"[TEMPLATE] table cell assignment failed: {e}")
 
         for cell in cells:
-            cell["bbox"] = [round(v / w, 5) for v in cell["bbox"]]
+            c = cell["bbox"]
+            cell["bbox"] = [
+                round(c[0] / w, 5),
+                round(c[1] / h, 5),
+                round(c[2] / w, 5),
+                round(c[3] / h, 5),
+            ]
         t["cells"] = cells
         tables_out.append(t)
 
