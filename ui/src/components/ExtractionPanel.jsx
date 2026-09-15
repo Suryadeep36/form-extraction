@@ -35,8 +35,9 @@ function SectionFields({ section, sectionIdx, onHover }) {
           if (field.label_bbox) {
             boxes.push({ bbox: field.label_bbox, color: COLORS.label });
           }
-          if (field.value_bbox) {
-            boxes.push({ bbox: field.value_bbox, color: COLORS.value });
+          const valueBoxes = field.value_bboxes || (field.value_bbox ? [field.value_bbox] : []);
+          for (const b of valueBoxes) {
+            boxes.push({ bbox: b, color: COLORS.value });
           }
           return (
             <div

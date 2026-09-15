@@ -117,9 +117,42 @@ def test_stacked_orphan_underline_adopted_into_address_field():
     if fields:
         f = fields[0]
         check("orphan adopted label", f["label"] == "Address:", repr(f["label"]))
-        # value_bbox stretches over BOTH lines (y2 at the second line).
-        y1, y2 = f["value_bbox"][1], f["value_bbox"][3]
-        check("value covers both lines", abs((y2 - y1) * 1600 - (1326 - 1238)) < 2, f["value_bbox"])
+        # x is normalized by image_width (1096), y by image_height (1600).
+        x1, y1, x2, y2 = f["value_bbox"]
+        check("value starts at the label row", y1 * 1600 <= 1197 + 1, f["value_bbox"])
+        check("value covers second line", y2 * 1600 >= 1326 - 1, f["value_bbox"])
+        check("x-range still the underline", abs(x1 * 1096 - 90) < 2 and abs(x2 * 1096 - 761) < 2, f["value_bbox"])
+        # Three line boxes: label row, parent underline, orphan underline.
+        bboxes = f.get("value_bboxes", [])
+        check("value_bboxes has 3 lines", len(bboxes) == 3, [len(bboxes)])
+
+
+def test_address_single_underline_spans_label_row():
+    # The real form: "Address :" on line 1, one wide underline on line 2.
+    # value_bboxes keeps each row as its own box; value_bbox is the union.
+    elements = [
+        {"text": "Address:", "bbox": [94, 1197, 181, 1221], "center": [137, 1209]}
+    ]
+    regions = [
+        {"bbox": [90, 1237.5, 761, 1275.5], "kind": "underline"},
+    ]
+    fields = _run(regions, elements)
+    check("single underline labelled", len(fields) == 1, [f["label"] for f in fields])
+    if fields:
+        f = fields[0]
+        x1, y1, x2, y2 = f["value_bbox"]
+        check("box starts at the label's line", y1 * 1600 <= 1197 + 2, f["value_bbox"])
+        check("box covers the underline line", y2 * 1600 >= 1275.5 - 2, f["value_bbox"])
+        check("horizontal span kept", abs(x1 * 1096 - 90) < 2 and abs(x2 * 1096 - 761) < 2, f["value_bbox"])
+        # Two line boxes: label row + underline.
+        bboxes = f.get("value_bboxes", [])
+        check("value_bboxes has 2 lines", len(bboxes) == 2, [len(bboxes)])
+        for i, nb in enumerate(bboxes):
+            check(
+                f"box {i} x-span",
+                abs(nb[0] * 1096 - 90) < 3 and abs(nb[2] * 1096 - 761) < 3,
+                nb,
+            )
 
 
 def test_orphan_over_headline_text_not_adopted():
@@ -148,6 +181,7 @@ def main():
     test_address_label_found_directly_above()
     test_header_noise_not_taken_as_upward_label()
     test_stacked_orphan_underline_adopted_into_address_field()
+    test_address_single_underline_spans_label_row()
     test_orphan_over_headline_text_not_adopted()
 
     if FAILURES:

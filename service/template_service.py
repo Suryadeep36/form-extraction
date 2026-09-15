@@ -242,23 +242,35 @@ def extract_filled(template, image_path):
 
     # The elements are in the aligned space; build a workspace object with
     # raw pixel bboxes and the warped image for checkbox density.
+    global_labels_px = []
+    for f in template.get("fields", []):
+        if f.get("label_bbox"):
+            global_labels_px.append(norm_to_px(f["label_bbox"]))
+
     workspace = {
         "image": warped if transform.get("homography") is not None else info["image"],
         "element_px": aligned_elements,
         "checkboxes": doc_rep.get("checkboxes") or [],
+        "global_labels_px": global_labels_px, # Injected here
     }
 
     extracted = []
     for field in template["fields"]:
         vb_px = norm_to_px(field["value_bbox"])
         # Make a copy of the field with pixel value_bbox so the helper works
-        # with real coordinates.
+        # with real coordinates. value_bboxes stores one box per physical
+        # line for multi-line fields (e.g. "Address :"); fall back to the
+        # union box when a field has no line breakdown.
         fcopy = dict(field)
         fcopy["value_bbox_px"] = vb_px
+        fcopy["value_boxes_px"] = [
+            norm_to_px(b) for b in (field.get("value_bboxes") or [field["value_bbox"]])
+        ]
         result = _extract_one(fcopy, workspace, w, h)
         # Surface the COMMITTED template value_bbox (the tight field region),
         # not the OCR extraction window `_extract_one` expands vertically.
         result["bbox"] = field["value_bbox"]
+        result["bboxes"] = field.get("value_bboxes") or [field["value_bbox"]]
         extracted.append(result)
 
     # --- Extract each table's cells --------------------------------------
@@ -498,23 +510,95 @@ def _extract_one(field_copy, workspace, w, h):
         }
 
     # --- 2. Homography-Trusted Text Extraction ---
-    x1, y1, x2, y2 = vb
-    
-    # Use a safe, fixed padding to catch handwriting, but rely on 
-    # the clustering logic below to reject adjacent printed rows.
-    value_window = [x1, y1 - 10, x2, y2 + 10]
+    boxes = field_copy.get("value_boxes_px") or [vb]
 
     def _center_in_region(bbox, region):
         cx = (bbox[0] + bbox[2]) / 2.0
         cy = (bbox[1] + bbox[3]) / 2.0
         return region[0] <= cx <= region[2] and region[1] <= cy <= region[3]
 
-    raw_matched = []
-    for e in workspace["element_px"]:
-        if _center_in_region(e["bbox"], value_window):
+    # NEW: Global label collision check
+    def _overlaps_any_label(bbox):
+        for l_px in workspace.get("global_labels_px", []):
+            ix1 = max(bbox[0], l_px[0]); iy1 = max(bbox[1], l_px[1])
+            ix2 = min(bbox[2], l_px[2]); iy2 = min(bbox[3], l_px[3])
+            if ix2 <= ix1 or iy2 <= iy1:
+                continue
+            inter = (ix2 - ix1) * (iy2 - iy1)
+            area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            # If more than 30% of the OCR element is inside ANY known label, ignore it
+            if area > 0 and inter / area > 0.3:
+                return True
+        return False
+
+    collected = []
+    seen_ids = set()
+    for box in boxes:
+        x1, y1, x2, y2 = box
+        box_height = y2 - y1
+        
+        # NEW: Asymmetric Padding
+        # If it's a thin underline (height < 15), users write ON it (above). 
+        # We look up higher, but restrict looking down so we don't swallow the row below.
+        if box_height < 15:
+            value_window = [x1, y1 - 25, x2, y2 + 4]
+        else:
+            value_window = [x1, y1 - 8, x2, y2 + 8]
+
+        raw_matched = []
+        for e in workspace["element_px"]:
+            if id(e) in seen_ids:
+                continue
+            if not _center_in_region(e["bbox"], value_window):
+                continue
+            if _overlaps_any_label(e["bbox"]): # Exclude ALL registered labels
+                continue
             raw_matched.append(e)
 
-    if not raw_matched:
+        if not raw_matched:
+            continue
+
+        # --- 3. ANTI-BLEED: Baseline Clustering ---
+        raw_matched.sort(key=lambda e: (e["bbox"][1] + e["bbox"][3]) / 2.0)
+
+        lines = []
+        current_line = []
+        last_cy = None
+
+        for e in raw_matched:
+            cy = (e["bbox"][1] + e["bbox"][3]) / 2.0
+            if last_cy is None or abs(cy - last_cy) < 15:
+                current_line.append(e)
+                if last_cy is None:
+                    last_cy = cy
+            else:
+                lines.append(current_line)
+                current_line = [e]
+                last_cy = cy
+        if current_line:
+            lines.append(current_line)
+
+        if box_height < 45 and len(lines) > 1:
+            target_y = (y1 + y2) / 2.0
+            best_line = None
+            min_dist = float('inf')
+
+            for line in lines:
+                line_cy = np.mean([(e["bbox"][1] + e["bbox"][3]) / 2.0 for e in line])
+                dist = abs(line_cy - target_y)
+                if dist < min_dist:
+                    min_dist = dist
+                    best_line = line
+            picked = best_line
+        else:
+            picked = [e for line in lines for e in line]
+
+        for e in picked:
+            if id(e) not in seen_ids:
+                seen_ids.add(id(e))
+                collected.append(e)
+
+    if not collected:
         return {
             "label": field_copy["label"],
             "value": None,
@@ -524,55 +608,13 @@ def _extract_one(field_copy, workspace, w, h):
             "source": "blank",
         }
 
-    # --- 3. ANTI-BLEED: Baseline Clustering ---
-    # Group the captured elements into horizontal rows based on their Y-centers.
-    raw_matched.sort(key=lambda e: (e["bbox"][1] + e["bbox"][3]) / 2.0)
-    
-    lines = []
-    current_line = []
-    last_cy = None
-    
-    for e in raw_matched:
-        cy = (e["bbox"][1] + e["bbox"][3]) / 2.0
-        # If the Y-center is within 15px of the previous word, it's on the same line
-        if last_cy is None or abs(cy - last_cy) < 15:
-            current_line.append(e)
-            if last_cy is None: last_cy = cy
-        else:
-            lines.append(current_line)
-            current_line = [e]
-            last_cy = cy
-    if current_line:
-        lines.append(current_line)
-
-    box_height = y2 - y1
-    matched = []
-    
-    # If it's a standard single-line field (underline or tight box < 45px tall)
-    # and we accidentally swallowed multiple rows, mathematically discard the bleeding rows.
-    if box_height < 45 and len(lines) > 1:
-        target_y = (y1 + y2) / 2.0
-        best_line = None
-        min_dist = float('inf')
-        
-        # Pick the line whose Y-center is closest to the physical center of the bounding box
-        for line in lines:
-            line_cy = np.mean([(e["bbox"][1] + e["bbox"][3]) / 2.0 for e in line])
-            dist = abs(line_cy - target_y)
-            if dist < min_dist:
-                min_dist = dist
-                best_line = line
-        matched = best_line
-    else:
-        # It's a large multiline box (like Address) or only 1 line was found. Keep everything.
-        matched = [e for line in lines for e in line]
-
     # --- 4. Value Cleanup ---
-    # Sort strictly left-to-right to construct the final sentence
-    matched.sort(key=lambda e: e["bbox"][0])
+    matched = sorted(
+        collected,
+        key=lambda e: ((e["bbox"][1] + e["bbox"][3]) / 2.0, e["bbox"][0]),
+    )
     value = " ".join(e["text"].strip() for e in matched).strip()
     
-    # Clean up rogue colons and repair dates
     value = re.sub(r"^\s*:+\s*|\s*:+\s*$", "", value)
     value = _repair_date_range(value)
     

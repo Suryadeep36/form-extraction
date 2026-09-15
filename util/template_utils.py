@@ -320,8 +320,10 @@ def build_template_fields(doc_rep, image_width, image_height):
 
     # Vertical region grouping: an orphan underline sitting directly below a
     # labelled underline that shares its x-range belongs to that field (e.g.
-    # the second line of a two-line "Address:" box). Stretch the parent's
+    # the second line of a two-line "Address:" box). Record each adopted line
+    # so the field can keep one value box per row; then stretch the parent's
     # value_bbox down over the orphan and drop the orphan.
+    adopted_rows = {}
     for orphan in orphans:
         ob = orphan.get("bbox")
         if not ob or len(ob) != 4:
@@ -349,6 +351,7 @@ def build_template_fields(doc_rep, image_width, image_height):
             if gap <= 0 or gap > 2 * median_text_h:
                 continue
             if min(ob[2], rb[2]) > max(ob[0], rb[0]):
+                adopted_rows.setdefault(id(region), []).append((rb[:], ob[:]))
                 rb[3] = ob[3]
                 break
 
@@ -358,12 +361,60 @@ def build_template_fields(doc_rep, image_width, image_height):
         if not rb or len(rb) != 4:
             continue
 
+        kind = region.get("kind") or "blank"
+        rb = list(rb)
+
+        # One value box per physical line. Blank/box fields keep a single box;
+        # an underline grows an array so multi-line fields (e.g. "Address :")
+        # store each writing row as its own box instead of a single tall
+        # rectangle that swallows a neighbour such as Pin.
+        boxes = [rb]
+        if kind == "underline":
+            lb = label_info["bbox"]
+            if lb[3] <= rb[1]:
+                # Label occupies its own line directly above the underline
+                # ("Address :" on line 1): the value also starts on that row.
+                boxes = [[rb[0], lb[1], rb[2], lb[3]]] + boxes
+            parents = adopted_rows.get(id(region))
+            if parents:
+                # Replace the merged underline with the parent row, then add
+                # its adopted orphan line(s).
+                boxes[-1] = list(parents[0][0])
+                boxes.extend(list(o) for _, o in parents)
+            # Enlarge each line vertically (handwriting stands on the line),
+            # clamping against OTHER fields' regions so a box never covers or
+            # is covered by a neighbouring row. A label that OVERLAPS the
+            # underline (e.g. "Name of Board ..." printed across its own line)
+            # is not a block layout and stays a single line.
+            for b in boxes:
+                bh = max(b[3] - b[1], 6.0)
+                pad_up = min(0.9 * median_text_h, 0.6 * bh)
+                pad_down = min(0.4 * median_text_h, 0.35 * bh)
+                above = [r["bbox"][3] for r, _ in entries
+                         if r is not region and r["bbox"][3] <= b[1] + 2.0]
+                below = [r["bbox"][1] for r, _ in entries
+                         if r is not region and r["bbox"][1] >= b[3] - 2.0]
+                if above:
+                    pad_up = min(pad_up, max(0.0, b[1] - max(above)))
+                if below:
+                    pad_down = min(pad_down, max(0.0, min(below) - b[3]))
+                b[1] -= pad_up
+                b[3] += pad_down
+
         norm_bbox = [
-            rb[0] / image_width,
-            rb[1] / image_height,
-            rb[2] / image_width,
-            rb[3] / image_height,
+            min(b[0] for b in boxes) / image_width,
+            min(b[1] for b in boxes) / image_height,
+            max(b[2] for b in boxes) / image_width,
+            max(b[3] for b in boxes) / image_height,
         ]
+        norm_boxes = []
+        for b in boxes:
+            norm_boxes.append([
+                b[0] / image_width,
+                b[1] / image_height,
+                b[2] / image_width,
+                b[3] / image_height,
+            ])
         lb = label_info["bbox"]
         norm_label = [
             lb[0] / image_width,
@@ -376,6 +427,7 @@ def build_template_fields(doc_rep, image_width, image_height):
             "label_norm": _norm_label(label_info["text"]),
             "label_bbox": [round(v, 5) for v in norm_label],
             "value_bbox": [round(v, 5) for v in norm_bbox],
+            "value_bboxes": [[round(v, 5) for v in nb] for nb in norm_boxes],
             "kind": region.get("kind") or "blank",
             "confidence": region.get("confidence"),
         })

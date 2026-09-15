@@ -115,16 +115,19 @@ export default function DocumentImage({
       {imageSrc && layers.values && (
         <div className="absolute inset-0 pointer-events-none">
           {sections.map((section, sIdx) =>
-            (section.fields || []).map((field, fIdx) => (
-              <Box
-                key={`v-${sIdx}-${fIdx}`}
-                style={toPct(field.value_bbox)}
-                color={COLORS.value}
-                fill="0.03"
-                title={field.value || field.label}
-                z={1}
-              />
-            ))
+            (section.fields || []).map((field, fIdx) => {
+              const boxes = field.value_bboxes || [field.value_bbox];
+              return boxes.map((bbox, bIdx) => (
+                <Box
+                  key={`v-${sIdx}-${fIdx}-${bIdx}`}
+                  style={toPct(bbox)}
+                  color={COLORS.value}
+                  fill="0.03"
+                  title={field.value || field.label}
+                  z={1}
+                />
+              ));
+            })
           )}
         </div>
       )}
