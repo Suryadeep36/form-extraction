@@ -508,19 +508,37 @@ def _value_claims_region(el, region):
     the line. Tokens from the rows above/below whose centres drift into a
     region's padded box (e.g. a title word hanging over a field, or the first
     words of the following label line) do not qualify.
+
+    Printed form text is never a value: a colon-terminated label, any line
+    whose baseline sits clearly above the printed line (labels print above the
+    underline, handwritten values sit ON it), and full-line headings /
+    instructions that span most of the region's width.
     """
+    text = (el.get("text") or "").strip()
+    if text.endswith(":"):
+        return False
     rb = region["bbox"]
     tcx, _ = _bbox_center(el["bbox"])
     if not (rb[0] <= tcx <= rb[2]):
         return False
-    return abs(el["bbox"][3] - _region_line_cy(region)) <= _value_baseline_band(region)
+    line_cy = _region_line_cy(region)
+    if el["bbox"][3] < line_cy - 2:
+        return False
+    region_w = max(rb[2] - rb[0], 1.0)
+    if len(text.split()) >= 3 and (el["bbox"][2] - el["bbox"][0]) >= 0.6 * region_w:
+        return False
+    return abs(el["bbox"][3] - line_cy) <= _value_baseline_band(region)
 
 
 def _token_region_window(token, region):
     """
     Window in which a token's center would make it a *value* of the region.
 
-    Returns the window or None. Two gates decide:
+    Returns the window or None. Three gates decide:
+      * printed form text is never a value: a colon-terminated token, any
+        token whose baseline sits clearly above the printed line (labels print
+        above the underline, handwritten values sit ON it), and full-line
+        headings / instructions are all rejected up front;
       * horizontal: token center inside the region's x-range,
       * vertical:   token *baseline* (box bottom) within a small band of the
                     region's printed line. The baseline is what a value sits
@@ -528,8 +546,15 @@ def _token_region_window(token, region):
                     into the region's padded box is never claimed.
     """
     rb = region["bbox"]
-    rh = rb[3] - rb[1]
+    text = (token.get("text") or "").strip()
+    if text.endswith(":"):
+        return None
     line_cy = _region_line_cy(region)
+    if token["bbox"][3] < line_cy - 2:
+        return None
+    if len(text.split()) >= 3 and (token["bbox"][2] - token["bbox"][0]) >= 0.6 * max(rb[2] - rb[0], 1.0):
+        return None
+    rh = rb[3] - rb[1]
     band = _value_baseline_band(region)
     window = [rb[0], line_cy - 1.5 * rh, rb[2], line_cy + band]
     tcx, tcy = _bbox_center(token["bbox"])

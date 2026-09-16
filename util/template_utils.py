@@ -13,6 +13,7 @@ IS that field's value; checkboxes are decided by pixel density instead.
 """
 
 import re
+import math
 from difflib import SequenceMatcher
 import numpy as np
 
@@ -95,164 +96,278 @@ def _find_upward_label(region, elements, median_text_h):
     return {"text": best.get("text", "").strip(), "bbox": best["bbox"]}
 
 
-def _label_for_region(region, elements, median_text_h):
+def _region_gap(rb, eb):
+    """Closest-axis gap between a region box and a label box (0 on any axis
+    where the boxes overlap)."""
+    return (
+        max(0.0, rb[0] - eb[2], eb[0] - rb[2]),
+        max(0.0, rb[1] - eb[3], eb[1] - rb[3]),
+    )
+
+
+def _is_label_row_member(el, elements, median_text_h):
     """
-    Find the printed label for an input region.
+    True when some OTHER printable element (>= 2 chars) sits on the same
+    baseline as `el` (within +-0.6 * median_text_h).
 
-    Order of fallback:
-      1. A label on the region's own row, sitting to the LEFT and ending
-         at-or-before the region's left edge (small tolerance for short
-         connectives like "to" that OCR shoves a few px past the start).
-      2. A *straddling* text element whose box crosses the region's left
-         edge -- e.g. OCR glues "Date of Birth://" into one box. Its
-         word-level boxes isolate the real label prefix ("Date of Birth")
-         from the trailing "/" separators.
-      3. A primary label on the line directly ABOVE the region (within
-         1.5 * median_text_h), when the row itself has no left label
-         (e.g. "Address:" printed above its value line, or a multiline
-         label such as "Name of Board from which..." / "(Gujarat Board:)").
+    An isolated single word (watermark junk like "AHA") is not part of a row
+    of labels and cannot sponsor a colon-less single-word field; a header-row
+    label like "Age"/"Gender" that shares its baseline with "Full Name :",
+    "Date of Birth :" etc. can.
+    """
+    if not elements:
+        return False
+    eb = el.get("bbox")
+    if not eb or len(eb) != 4:
+        return False
+    cy = el.get("center", [None, None])[1]
+    if cy is None:
+        cy = (eb[1] + eb[3]) / 2.0
+    band = max(8.0, 0.6 * median_text_h)
+    for other in elements:
+        if other is el or other.get("is_value"):
+            continue
+        if len((other.get("text") or "").strip()) < 2:
+            continue
+        ob = other.get("bbox")
+        if not ob or len(ob) != 4:
+            continue
+        ocy = other.get("center", [None, None])[1]
+        if ocy is None:
+            ocy = (ob[1] + ob[3]) / 2.0
+        if abs(ocy - cy) <= band:
+            return True
+    return False
 
-    Returns {"text": str, "bbox": [x1,y1,x2,y2]} or None.
+
+def _find_straddle_prefix(region, elements, median_text_h, tol):
+    """
+    Recover a label prefix from a glued OCR element whose box crosses the
+    region's left edge and vertically overlaps it ("Date of Birth://" ->
+    "Date of Birth").  Only word boxes that END before the region are kept, so
+    the trailing "/" separators are dropped.  Returns
+    {"text", "bbox", "parent"} (nearest to the region's line) or None.
     """
     rb = region["bbox"]
     x1, y1, x2, y2 = rb
+    mh = max(float(median_text_h or 0), 1.0)
+    lo = y1 - mh
+    hi = y2 + mh
     line_cy = (y1 + y2) / 2.0
-    tol = max(8.0, 0.4 * median_text_h)
-    row_lo = y1 - (y2 - y1) * 0.5
-    row_hi = y2 + (y2 - y1) * 0.5
-
-    candidates = []
-    # Distance cap: a label cannot be arbitrarily far to the left. This stops
-    # a wide photo box from hijacking a label several fields away. Cap at
-    # 200px so it can never loosen beyond the old guarantee on large text.
-    max_dist = min(15 * median_text_h, 200)
+    best = None
+    best_d = None
     for el in elements:
         if el.get("is_value"):
             continue
         eb = el.get("bbox")
         if not eb or len(eb) != 4:
             continue
-        # A single stray punct glyph (":", ")", ".") is never a label.
-        if len((el.get("text") or "").strip()) < 2:
+        if not (eb[0] < x1 < eb[2]):
+            continue
+        if not (eb[1] < y2 and eb[3] > y1 and eb[3] <= y2):
             continue
         cy = el.get("center", [None, None])[1]
         if cy is None:
             cy = (eb[1] + eb[3]) / 2.0
-        if not (row_lo <= cy <= row_hi):
+        if not (lo <= cy <= hi):
             continue
-        if eb[0] >= x2:
+        all_words = [
+            w for w in (el.get("words") or [])
+            if w.get("bbox") and len(w["bbox"]) == 4
+        ]
+        kept = [w for w in all_words if w["bbox"][2] <= x1 + tol]
+        if not kept:
             continue
-        if eb[2] > x1 + tol:
-            continue
-        if eb[2] < x1 - max_dist:
-            continue
-        candidates.append(el)
-
-    if not candidates:
-        # 2. Straddling text element: its box crosses the region's left edge.
-        # Use the word boxes that end before the region to recover the label
-        # prefix ("Date of Birth" out of a glued "Date of Birth://").
-        straddle = []
-        for el in elements:
-            if el.get("is_value"):
-                continue
-            eb = el.get("bbox")
-            if not eb or len(eb) != 4:
-                continue
-            cy = el.get("center", [None, None])[1]
-            if cy is None:
-                cy = (eb[1] + eb[3]) / 2.0
-            if not (row_lo <= cy <= row_hi):
-                continue
-            if not (eb[0] < x1 < eb[2]):
-                continue
-            words = el.get("words") or []
-            kept = [
-                w for w in words
-                if w.get("bbox") and len(w["bbox"]) == 4 and w["bbox"][2] <= x1 + tol
-            ]
-            if not kept:
-                continue
+        if len(kept) == len(all_words):
+            # Every word lands before the region: keep the original text so
+            # OCR formatting ("No. of days") is preserved, not re-spaced.
+            wtext = (el.get("text") or "").strip()
+        else:
             wtext = " ".join(
                 w.get("text", "").strip() for w in kept if w.get("text")
             ).strip()
-            wtext = re.sub(r"\s+", " ", wtext)
-            if len(wtext) < 2 or re.fullmatch(r"[\\/‑–—\-\u2212]+", wtext):
-                continue
-            straddle.append(
-                {
-                    "text": wtext,
-                    "bbox": [
-                        min(w["bbox"][0] for w in kept),
-                        min(w["bbox"][1] for w in kept),
-                        max(w["bbox"][2] for w in kept),
-                        max(w["bbox"][3] for w in kept),
-                    ],
-                    "cy": cy,
-                }
-            )
-        if straddle:
-            straddle.sort(key=lambda s: abs(s["cy"] - line_cy))
-            return {"text": straddle[0]["text"], "bbox": straddle[0]["bbox"]}
+        wtext = re.sub(r"\s+", " ", wtext)
+        if len(wtext) < 2 or re.fullmatch(r"[\\/‑–—\-\u2212]+", wtext):
+            continue
+        bbox = [
+            min(w["bbox"][0] for w in kept),
+            min(w["bbox"][1] for w in kept),
+            max(w["bbox"][2] for w in kept),
+            max(w["bbox"][3] for w in kept),
+        ]
+        d = abs(cy - line_cy)
+        if best is None or d < best_d:
+            best = {"text": wtext, "bbox": bbox, "parent": el}
+            best_d = d
+    return best
 
-        # 3. Primary label on the line directly above the region. Only trust
-        # colon-terminated headers here: the row has no left label at all, so
-        # without a ":" we would inherit stray watermark/header noise.
-        primary = _find_upward_label(region, elements, median_text_h)
-        if primary and ":" in primary["text"]:
-            return primary
+
+def _closest_above(rb, elements, median_text_h):
+    """
+    Nearest element printed on the line directly above the region (cy within
+    [y1 - 1.5*h, y1 + 0.5*h], x-overlapping) that is a genuine field label and
+    not a parenthetical instruction. Returns {"text", "bbox"} or None.
+    """
+    x1, y1, x2, y2 = rb
+    mh = max(float(median_text_h or 0), 1.0)
+    lo = y1 - 1.5 * mh
+    hi = y1 + 0.5 * mh
+    best = None
+    best_d = None
+    for el in elements:
+        if el.get("is_value"):
+            continue
+        eb = el.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        t = (el.get("text") or "").strip()
+        if len(t) < 2:
+            continue
+        if t.lstrip().startswith("(") and len(t) > 12:
+            continue
+        cy = el.get("center", [None, None])[1]
+        if cy is None:
+            cy = (eb[1] + eb[3]) / 2.0
+        if not (lo <= cy <= hi):
+            continue
+        if min(eb[2], x2) - max(eb[0], x1) <= 0:
+            continue
+        if not _label_is_field_label(t):
+            continue
+        dx, dy = _region_gap(rb, eb)
+        d = math.hypot(dx, dy)
+        if best is None or d < best_d:
+            best = {"text": t, "bbox": eb}
+            best_d = d
+    return best
+
+
+def _label_for_region(region, elements, median_text_h):
+    """
+    Find the printed label for an input region by minimum distance.
+
+    Every plausible candidate is collected and scored by Euclidean distance
+    from the closest point of its box to the region box:
+
+      1. Straddle prefix: a glued OCR element ("Date of Birth://") crossing
+         the region's left edge and overlapping it vertically yields its
+         word-level prefix ("Date of Birth") as a candidate.
+      2. Above / column labels: elements printed just above and overlapping
+         the region's x-range (cy within [y1 - 1.5*h, y1 + 0.5*h]) -- this
+         band also catches labels printed on/over the value line, and makes a
+         close column header beat neighbouring-column text.
+      3. Same-row left labels: elements whose bottom ends near the region's
+         top (<= y1 + h) and that end at-or-before the region's left edge
+         (with a small tolerance for short connectives like "to").
+
+    The minimum-distance candidate wins, then post-filters enforce the label
+    rules: a parenthetical instruction is replaced by the nearest above label,
+    an isolated colon-less single word is rejected unless it rides a real row
+    of labels, and a full-line heading printed over the region is not a label.
+
+    Returns {"text": str, "bbox": [x1,y1,x2,y2]} or None.
+    """
+    rb = region["bbox"]
+    x1, y1, x2, y2 = rb
+    mh = max(float(median_text_h or 0), 1.0)
+    tol = max(8.0, 0.4 * mh)
+    above_lo = y1 - 1.5 * mh
+    above_hi = y1 + 0.5 * mh
+    # Distance cap: a label cannot be arbitrarily far. Stops a wide photo box
+    # from hijacking a label several fields away. Cap at 200px so it can never
+    # loosen beyond the old guarantee on large text.
+    max_dist = min(15 * mh, 200)
+
+    straddle = _find_straddle_prefix(region, elements, mh, tol)
+    straddle_par = id(straddle["parent"]) if straddle else None
+
+    candidates = []
+    for el in elements:
+        if el.get("is_value"):
+            continue
+        eb = el.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        text = (el.get("text") or "").strip()
+        if len(text) < 2:
+            continue
+        cy = el.get("center", [None, None])[1]
+        if cy is None:
+            cy = (eb[1] + eb[3]) / 2.0
+
+        # 1. Straddling glue: the raw element is consumed by its prefix.
+        if id(el) == straddle_par:
+            dx, dy = _region_gap(rb, straddle["bbox"])
+            candidates.append({
+                "text": straddle["text"],
+                "bbox": straddle["bbox"],
+                "el": el,
+                "dist": math.hypot(dx, dy),
+                "above": False,
+            })
+            continue
+
+        # 2. Above / column label.
+        if above_lo <= cy <= above_hi and min(eb[2], x2) - max(eb[0], x1) > 0:
+            dx, dy = _region_gap(rb, eb)
+            candidates.append({
+                "text": text, "bbox": eb, "el": el,
+                "dist": math.hypot(dx, dy), "above": True,
+            })
+            continue
+
+        # 3. Same-row label sitting to the left.
+        if cy >= y1 - 1.5 * mh and eb[3] <= y1 + mh and eb[2] <= x1 + tol:
+            if eb[0] < x2:
+                dx, dy = _region_gap(rb, eb)
+                d = math.hypot(dx, dy)
+                if d <= max_dist:
+                    candidates.append({
+                        "text": text, "bbox": eb, "el": el,
+                        "dist": d, "above": False,
+                    })
+
+    if not candidates:
         return None
 
-    # Closest to the region's line first, then the label that ends nearest
-    # the region's start edge.
-    candidates.sort(
-        key=lambda e: (
-            abs(e["center"][1] - line_cy),
-            abs(e["bbox"][2] - x1),
-        )
-    )
+    # Minimum distance first; an exact row/left label breaks distance ties.
+    candidates.sort(key=lambda c: (c["dist"], c["above"]))
     best = candidates[0]
-    cluster = [best]
-    for el in candidates[1:]:
-        same_row = (
-            abs(el["center"][1] - best["center"][1]) <= max(8.0, 0.6 * median_text_h)
-        )
-        if same_row and best["bbox"][0] - el["bbox"][2] <= 100:
-            cluster.append(el)
-        else:
-            break
+    text = best["text"]
+    bbox = best["bbox"]
 
-    cluster.sort(key=lambda e: e["bbox"][0])
-    text = " ".join(e.get("text", "").strip() for e in cluster).strip()
-    if not text:
-        return None
-    bbox = [
-        min(e["bbox"][0] for e in cluster),
-        min(e["bbox"][1] for e in cluster),
-        max(e["bbox"][2] for e in cluster),
-        max(e["bbox"][3] for e in cluster),
-    ]
-
-    # The text right of the underline is often just a parenthetical
-    # instruction ("(Gujarat Board...)") while the real label sits on the line
-    # above ("Name of Board from which..."). Recover it rather than failing.
-    looks_instruction = text.lstrip().startswith("(") and len(text) > 12
-    if (not _label_is_field_label(text)) or looks_instruction:
-        primary = _find_upward_label(region, elements, median_text_h)
+    # Parenthetical instructions ("(Gujarat Board ...):") are not labels; the
+    # nearest non-instruction label above is the real one.
+    if text.lstrip().startswith("(") and len(text) > 12:
+        primary = _closest_above(rb, elements, mh)
         if primary:
-            if looks_instruction:
-                # Parenthetical instruction: take the primary alone so the
-                # label stays clean ("Name of Board from which...", not the
-                # glued "Name of Board ... (Gujarat Board ...):").
-                text = primary["text"]
-            else:
-                text = f"{primary['text']} {text}".strip()
-            bbox = [
-                min(primary["bbox"][0], bbox[0]),
-                min(primary["bbox"][1], bbox[1]),
-                max(primary["bbox"][2], bbox[2]),
-                max(primary["bbox"][3], bbox[3]),
-            ]
+            return {"text": primary["text"], "bbox": primary["bbox"]}
+        return None
+
+    # An isolated colon-less single word ("AHA", stray header noise) is not a
+    # label unless it rides a real row of printed labels.
+    if ":" not in text and len(text.split()) == 1:
+        if not _is_label_row_member(best["el"], elements, mh):
+            return None
+
+    # A full-line heading printed over the value region (spans >= 72% of the
+    # region width and genuinely overlaps it) is not a label. A same-row left
+    # label only ever overlaps by the tiny `tol` slop, so it survives.
+    lcy = (bbox[1] + bbox[3]) / 2.0
+    region_w = max(x2 - x1, 1.0)
+    if y1 <= lcy <= y2:
+        xov = min(bbox[2], x2) - max(bbox[0], x1)
+        if xov >= 0.3 * region_w and (bbox[2] - bbox[0]) >= 0.72 * region_w:
+            return None
+
+    # A printed box needs its label directly attached: sitting above/left and
+    # *horizontally overlapping* the box, or on its own row. A distant label
+    # floating above the box's top edge (e.g. a header instruction grabbing a
+    # decorative top box) is not a field label.
+    if region.get("kind") == "box":
+        xov = min(bbox[2], x2) - max(bbox[0], x1)
+        if xov <= 0 and bbox[3] < y1:
+            return None
 
     return {"text": text, "bbox": bbox}
 
@@ -356,6 +471,16 @@ def build_template_fields(doc_rep, image_width, image_height):
                 break
 
     out = []
+    # Priority: a printed underline or box is the authoritative value region
+    # for a label.  A whitespace "blank" only becomes a field when NO
+    # underline/box exists for that same label.  So collect the labels already
+    # claimed by a structured (underline/box) region and drop any matching
+    # blank below.
+    structured_labels = {
+        _norm_label(label_info["text"])
+        for region, label_info in entries
+        if (region.get("kind") or "blank") in ("underline", "box")
+    }
     for region, label_info in entries:
         rb = region.get("bbox")
         if not rb or len(rb) != 4:
@@ -369,8 +494,12 @@ def build_template_fields(doc_rep, image_width, image_height):
         # may also be "Total Marks Obtained: Out of"). A blank without any ":"
         # is layout whitespace (e.g. the gap between the printed "Signature of
         # Applicant" and "Date" labels), not a writable field, so drop it.
-        if kind == "blank" and ":" not in label_info["text"]:
-            continue
+        if kind == "blank":
+            if ":" not in label_info["text"]:
+                continue
+            # Never let a blank shadow a real underline/box for the same label.
+            if _norm_label(label_info["text"]) in structured_labels:
+                continue
 
         # One value box per physical line. A label on its own row above the
         # underline (e.g. "Name :" / "______") is NOT an extra value line: the

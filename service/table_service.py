@@ -385,7 +385,7 @@ def detect_and_fuse_tables(image, elements):
                 "sources": ["model"],
             })
             
-    # CV fallback is a safety net ONLY for when the model could not be
+# CV fallback is a safety net ONLY for when the model could not be
     # consulted (disabled / failed to load). When the model DID run and
     # found no table, do not manufacture one from CV: box layouts are
     # routinely misread as grids and their fields would be hidden.
@@ -399,7 +399,27 @@ def detect_and_fuse_tables(image, elements):
                 continue
             if (bbox[3] - bbox[1]) < max(60, height * 0.03):
                 continue
-                
+            # FILTER 3 (field-layout lookalike), same as the model branch:
+            # whole-page layouts of form fields (labels + underlines/boxes)
+            # are routinely misread as a single giant "table". Rejecting it
+            # here keeps the real input fields exposed instead of swallowing
+            # them as (empty) table cells.
+            field_labels = [
+                el for el in (elements or [])
+                if (el.get("text") or "").strip().endswith(":")
+                and bbox[1] - 60 <= (el["bbox"][1] + el["bbox"][3]) / 2 <= bbox[3]
+            ]
+            long_verticals = [
+                v for v in detect_vertical_lines(image)
+                if bbox[0] - 2 <= v["x"] <= bbox[2] + 2
+            ]
+            if len(field_labels) >= 3 and len(long_verticals) <= 3:
+                print(
+                    f"[TABLE FILTER] Dropped layout-as-table "
+                    f"(field_labels={len(field_labels)}, verticals={len(long_verticals)}): {bbox}"
+                )
+                continue
+            
             final_candidates.append({
                 "bbox": _clamp_bbox(bbox, width, height),
                 "confidence": round(cv.get("confidence", 0.5), 4),
