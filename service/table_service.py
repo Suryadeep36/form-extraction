@@ -25,6 +25,7 @@ from util.table_utils import (
 from service.table_model_service import (
     get_table_model_service,
 )
+from service.detection_service import detect_vertical_lines
 
 
 # ---------------------------------------------------------------------------
@@ -313,9 +314,16 @@ def detect_and_fuse_tables(image, elements):
     
     # ---- Model detection -------------------------------------------
     model_candidates = []
+    model_consulted = False
     if config.TABLE_MODEL_ENABLED:
         model_service = get_table_model_service()
         model_candidates = model_service.detect_tables(image)
+        # True only when the detector actually ran (loaded successfully).
+        # "No tables found" from a working model is authoritative: a plain
+        # box layout (rect on top, two squares in the middle, rect at the
+        # bottom) must NOT be turned into a table that swallows the input
+        # fields inside those boxes.
+        model_consulted = model_service.available and not model_service.load_error
         
     final_candidates = []
     
@@ -341,6 +349,34 @@ def detect_and_fuse_tables(image, elements):
                 print(f"[TABLE FILTER] Dropped ML fake table (Single cell / <= 4 intersections): {bbox}")
                 continue
 
+            # FILTER 3: Field-layout lookalike
+            # Whole-page layouts of form fields (labels + underlines/boxes)
+            # are routinely misread as a single giant "table". A genuine
+            # table's region holds few ":"-terminated field labels and a real
+            # grid of several vertical rules; a form layout packs many colon
+            # labels and little-to-no vertical structure. Rejecting it here
+            # keeps the real input fields exposed instead of swallowing them
+            # as (empty) table cells.
+            # NOTE: cv_match.n_vertical is too permissive (it uses a lower
+            # min_height_ratio=0.10 and counts short box edges). We use
+            # detect_vertical_lines (min_height_ratio=0.15) which only
+            # counts lines spanning ≥15% of the image — true grid rules.
+            field_labels = [
+                el for el in (elements or [])
+                if (el.get("text") or "").strip().endswith(":")
+                and bbox[1] - 60 <= (el["bbox"][1] + el["bbox"][3]) / 2 <= bbox[3]
+            ]
+            long_verticals = [
+                v for v in detect_vertical_lines(image)
+                if bbox[0] - 2 <= v["x"] <= bbox[2] + 2
+            ]
+            if len(field_labels) >= 3 and len(long_verticals) <= 3:
+                print(
+                    f"[TABLE FILTER] Dropped layout-as-table "
+                    f"(field_labels={len(field_labels)}, verticals={len(long_verticals)}): {bbox}"
+                )
+                continue
+
             # If it survives the filters, it is a legitimate table
             final_candidates.append({
                 "bbox": _clamp_bbox(bbox, width, height),
@@ -349,10 +385,12 @@ def detect_and_fuse_tables(image, elements):
                 "sources": ["model"],
             })
             
-    # If the ML model found nothing (or if everything was filtered out as fake boxes), 
-    # fall back to CV, applying the same strict rules.
-    if not final_candidates:
-        print("[TABLE] ML Model empty or filtered. Falling back to CV.")
+    # CV fallback is a safety net ONLY for when the model could not be
+    # consulted (disabled / failed to load). When the model DID run and
+    # found no table, do not manufacture one from CV: box layouts are
+    # routinely misread as grids and their fields would be hidden.
+    if not final_candidates and not model_consulted:
+        print("[TABLE] Model unavailable. Falling back to CV.")
         for cv in cv_candidates:
             bbox = cv["bbox"]
             
@@ -440,15 +478,15 @@ def detect_and_fuse_tables(image, elements):
 
 
     # ---- Fusion -----------------------------------------------------------
-    print("[TABLE-FUSION] Merging candidates...")
-    fused = _fuse_candidates(cv_candidates, model_candidates, (height, width))
-    print(f"[TABLE-FUSION] Final tables: {len(fused)}")
-    print(fused)
+    # print("[TABLE-FUSION] Merging candidates...")
+    # fused = _fuse_candidates(cv_candidates, model_candidates, (height, width))
+    # print(f"[TABLE-FUSION] Final tables: {len(fused)}")
+    # print(fused)
 
-    for table in fused:
-        table["bbox"] = _clamp_bbox(table["bbox"], width, height)
+    # for table in fused:
+    #     table["bbox"] = _clamp_bbox(table["bbox"], width, height)
 
-    return fused, cv_candidates
+    # return fused, cv_candidates
 
 
 # def finalize_tables(fused, doc_rep, image):
