@@ -345,10 +345,13 @@ def _label_for_region(region, elements, median_text_h):
         return None
 
     # An isolated colon-less single word ("AHA", stray header noise) is not a
-    # label unless it rides a real row of printed labels.
+    # label unless it rides a real row of printed labels. The exception is a
+    # checkbox group: a lone word printed directly above/left of a cluster of
+    # selection boxes ("Gender", "Sex") IS its question label.
     if ":" not in text and len(text.split()) == 1:
-        if not _is_label_row_member(best["el"], elements, mh):
-            return None
+        if region.get("kind") != "checkbox_group":
+            if not _is_label_row_member(best["el"], elements, mh):
+                return None
 
     # A full-line heading printed over the value region (spans >= 72% of the
     # region width and genuinely overlaps it) is not a label. A same-row left
@@ -564,12 +567,71 @@ def build_template_fields(doc_rep, image_width, image_height):
             "confidence": region.get("confidence"),
         })
 
+    # Checkbox option groups (geometric clusters): each group is itself a
+    # first-class field whose value is the list of checked option texts.  The
+    # parent label comes from the shared `_label_for_region` on the group's
+    # macro-box (searches Left then Up exactly like any other field).
+    groups = doc_rep.get("checkbox_groups") or []
+    for group in groups:
+        gb = group.get("bbox")
+        if not gb or len(gb) != 4:
+            continue
+        label_info = _label_for_region(
+            {"bbox": gb, "kind": "checkbox_group"}, elements, median_text_h
+        )
+        label = ""
+        label_bbox = None
+        if label_info and _label_is_field_label(label_info["text"]):
+            label = label_info["text"]
+            label_bbox = [
+                label_info["bbox"][0] / image_width,
+                label_info["bbox"][1] / image_height,
+                label_info["bbox"][2] / image_width,
+                label_info["bbox"][3] / image_height,
+            ]
+        options = []
+        for opt in group.get("options") or []:
+            ob = opt.get("bbox")
+            if not ob or len(ob) != 4:
+                continue
+            options.append({
+                "text": opt.get("text") or "",
+                "bbox": [
+                    round(ob[0] / image_width, 5),
+                    round(ob[1] / image_height, 5),
+                    round(ob[2] / image_width, 5),
+                    round(ob[3] / image_height, 5),
+                ],
+            })
+        if not options:
+            continue
+        out.append({
+            "label": label,
+            "label_norm": _norm_label(label),
+            "label_bbox": [round(v, 5) for v in label_bbox] if label_bbox else None,
+            "value_bbox": [
+                round(gb[0] / image_width, 5),
+                round(gb[1] / image_height, 5),
+                round(gb[2] / image_width, 5),
+                round(gb[3] / image_height, 5),
+            ],
+            "value_bboxes": [[
+                round(gb[0] / image_width, 5),
+                round(gb[1] / image_height, 5),
+                round(gb[2] / image_width, 5),
+                round(gb[3] / image_height, 5),
+            ]],
+            "kind": "checkbox_group",
+            "options": options,
+            "confidence": None,
+        })
+
     # Overlapping duplicate regions (an underline plus a low-confidence blank
     # gap covering the same physical spot) share the label we just derived;
     # keep the most reliable structure (underline > box > blank, then
     # confidence).  Non-overlapping same-label fields (e.g. a second "to" on
     # a different line) are kept.
-    kind_rank = {"box": 3, "underline": 2, "blank": 1}
+    kind_rank = {"box": 3, "underline": 2, "blank": 1, "checkbox_group": 2}
     ordered = sorted(
         out,
         key=lambda f: (kind_rank.get(f["kind"], 0), f["confidence"] or 0.0),

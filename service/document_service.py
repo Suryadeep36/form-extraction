@@ -34,6 +34,7 @@ from service.detection_service import (
 from util.checkbox_utils import (
     strip_leading_option_mark,
 )
+from util.checkbox_group_utils import detect_checkbox_groups
 from service.field_service import (
     process_form_fields
 )
@@ -130,12 +131,28 @@ def build_document_representation(image, image_path=None):
     # 2. Build the exclusion boxes using ONLY the valid tables
     table_bboxes = [t["bbox"] for t in fused]
 
+    # ---- Checkbox GROUPS (geometric clustering) ---------------------------
+    # Run BEFORE field detection so option checkboxes never leak into
+    # individual input regions: a checkbox's macro-box area is excluded from
+    # detect_input_regions below.
+    heights = [e.get("height") for e in raw_elements if e.get("height")]
+    median_text_h = float(np.median(heights)) if heights else 20.0
+    print("Detecting checkbox groups...")
+    checkbox_groups = detect_checkbox_groups(
+        image,
+        raw_elements,
+        median_text_h=median_text_h,
+        exclude_bboxes=table_bboxes,
+    )
+    print(f"Checkbox groups: {len(checkbox_groups)}")
+
     # ---- Form fields (input regions + compound splitting) ----------------
     fields, input_regions, elements = process_form_fields(
         image,
         raw_elements,
         table_bboxes=table_bboxes,
         checkboxes=checkboxes,
+        checkbox_group_bboxes=[g["bbox"] for g in checkbox_groups],
     )
     print(f"[OCR] Final elements: {len(elements)}")
 
@@ -170,6 +187,7 @@ def build_document_representation(image, image_path=None):
         "elements": elements,
         "regions": regions,
         "checkboxes": checkboxes,
+        "checkbox_groups": checkbox_groups,
         "lines": {
             "horizontal": horizontal_lines,
             "vertical": vertical_lines,

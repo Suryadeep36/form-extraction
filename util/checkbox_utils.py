@@ -22,7 +22,7 @@ import numpy as np
 from util.image_utils import _load_gray, _threshold_gray
 
 
-_MARK_LEAD = re.compile(r'^[Xx✓✔✗✘■▪□_•·\-\u2013\u2014]\s*', re.UNICODE)
+_MARK_LEAD = re.compile(r'^[Xx✓✔✗✘■▪□☐☑☒_•·\-\u2013\u2014]\s*', re.UNICODE)
 
 
 def _classify_window(bin_img, x1, y1, x2, y2):
@@ -192,7 +192,7 @@ def strip_leading_option_mark(text, has_box=False):
     (e.g. coordinate-axis "X Latitude North") is left untouched.
     """
     if not text:
-        return text
+        return text, False
     m = _MARK_LEAD.match(text)
     if not m:
         return text, False
@@ -201,7 +201,7 @@ def strip_leading_option_mark(text, has_box=False):
     if not rest:
         return text, False
     # Symbolic marks are almost never a label's first real word.
-    if glyph in {"✓", "✔", "✗", "✘", "■", "▪", "□", "_", "•", "·"}:
+    if glyph in {"✓", "✔", "✗", "✘", "■", "▪", "□", "☐", "☑", "☒", "_", "•", "·"}:
         return rest, True
     if glyph.lower() == "x":
         # "XPartially Boatable" (glued, no space between X and word) is a mark.

@@ -71,7 +71,107 @@ function hexAlpha(a) {
 /*  Field card — highlights on hover                                   */
 /* ------------------------------------------------------------------ */
 
+const CHECKED_COLOR = "#22c55e";
+const UNCHECKED_COLOR = "#94a3b8";
+const GROUP_COLOR = "#8b5cf6";
+
+function isCheckboxGroup(field) {
+  return (
+    field?.value_type === "checkbox_group" || Array.isArray(field?.options)
+  );
+}
+
+function OptionPill({ option, showState }) {
+  const checked = showState && option.checked === true;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium ${
+        checked
+          ? "bg-green-100 text-green-800 ring-1 ring-green-300"
+          : "bg-gray-100 text-gray-600"
+      }`}
+    >
+      {showState && (
+        <input
+          type="checkbox"
+          checked={checked}
+          readOnly
+          className="w-3.5 h-3.5 rounded border-gray-300 pointer-events-none"
+        />
+      )}
+      {option.text || option.label || (
+        <span className="italic text-gray-400">—</span>
+      )}
+    </span>
+  );
+}
+
+/* Checkbox-group field: a set of option checkboxes whose extracted value is
+   the list of checked option texts (single- or multi-select). */
+function CheckboxGroupCard({ field, onHover, onLeave }) {
+  const options = field.options || [];
+  const checkedOptions = options.filter((o) => o.checked === true);
+  const boxes = [];
+  if (field.bbox && field.bbox.length === 4) {
+    boxes.push({ bbox: field.bbox, color: GROUP_COLOR });
+  }
+  for (const o of options) {
+    if (o.bbox && o.bbox.length === 4) {
+      boxes.push({
+        bbox: o.bbox,
+        color: o.checked === true ? CHECKED_COLOR : UNCHECKED_COLOR,
+      });
+    }
+  }
+  return (
+    <div
+      className="bg-gray-50 rounded p-2 text-sm border border-gray-100 cursor-pointer hover:border-purple-400 hover:shadow-sm transition-all duration-100"
+      onMouseEnter={() =>
+        boxes.length && onHover?.({ label: field.label, boxes })
+      }
+      onMouseLeave={() => onLeave?.()}
+    >
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <span className="block text-gray-500 text-xs break-words">
+          {field.label || (
+            <span className="italic text-gray-400">unlabelled</span>
+          )}
+        </span>
+        <div className="flex items-center gap-1 shrink-0">
+          <span className="text-[9px] uppercase tracking-wide bg-purple-100 text-purple-700 px-1 py-0.5 rounded">
+            checkbox group
+          </span>
+          <span className="text-[10px] text-gray-400">
+            {checkedOptions.length}/{options.length}
+          </span>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((option, idx) => (
+          <OptionPill key={idx} option={option} showState />
+        ))}
+        {options.length === 0 && (
+          <span className="text-xs text-gray-400 italic">No options</span>
+        )}
+      </div>
+      {checkedOptions.length > 0 && (
+        <div className="mt-1.5 text-xs text-gray-600">
+          Selected:{" "}
+          <span className="font-semibold text-green-700">
+            {checkedOptions.map((o) => o.text).join(", ")}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FieldCard({ field, onHover, onLeave }) {
+  if (isCheckboxGroup(field)) {
+    return (
+      <CheckboxGroupCard field={field} onHover={onHover} onLeave={onLeave} />
+    );
+  }
   const hasBbox = field.bbox && field.bbox.length === 4;
   return (
     <div
@@ -387,6 +487,31 @@ export default function TemplateDetail() {
               <p className="text-xs text-gray-400 mt-2">
                 Created {formatDate(template.created_at)}
               </p>
+              {template.fields?.some(isCheckboxGroup) && (
+                <div className="mt-3 border-t border-gray-100 pt-3">
+                  <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+                    Detected Checkbox Groups
+                  </h4>
+                  <div className="flex flex-col gap-2">
+                    {template.fields.filter(isCheckboxGroup).map((f, idx) => (
+                      <div key={idx} className="text-xs">
+                        <span className="block text-gray-500 mb-1 break-words">
+                          {f.label || (
+                            <span className="italic text-gray-400">
+                              unlabelled
+                            </span>
+                          )}
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {(f.options || []).map((o, oIdx) => (
+                            <OptionPill key={oIdx} option={o} showState={false} />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

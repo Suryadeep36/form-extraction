@@ -40,7 +40,7 @@ from util.geometry_utils import (
 # Input-region detection
 # ---------------------------------------------------------------------------
 
-def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkboxes=None):
+def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkboxes=None, checkbox_group_bboxes=None):
     """
     Detect input regions from visual evidence: underlines, small boxes and
     blank gaps between printed labels.
@@ -60,6 +60,7 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
 
     table_bboxes = table_bboxes or []
     checkboxes = checkboxes or []
+    checkbox_group_bboxes = checkbox_group_bboxes or []
 
     if elements:
         heights = [e["height"] for e in elements if e.get("height")]
@@ -118,6 +119,8 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
             continue
         if any(_iou(box["bbox"], cb["bbox"]) > 0.4 for cb in checkboxes):
             continue
+        if any(_intersection_over_area(box["bbox"], gb) > 0.25 for gb in checkbox_group_bboxes):
+            continue
         raw.append(
             {
                 "kind": "box",
@@ -132,6 +135,8 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
             if _inside_any_table(gap["bbox"], table_bboxes, overlap_ratio=0.45):
                 continue
             if any(_iou(gap["bbox"], cb["bbox"]) > 0.4 for cb in checkboxes):
+                continue
+            if any(_intersection_over_area(gap["bbox"], gb) > 0.25 for gb in checkbox_group_bboxes):
                 continue
             raw.append(
                 {

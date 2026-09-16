@@ -474,8 +474,53 @@ def _warp_element_bbox(elements, H, width):
 #         "source": "ocr",
 #     }
 
+def _extract_checkbox_group(field_copy, workspace, w, h):
+    """Extract a checkbox_group field: evaluate each option's checkbox ring.
+
+    Option bboxes are registered-normalized and live in the template page
+    space, which equals the warped image space here, so map them through
+    norm_to_px (template dims).  The CHEAKBOX bbox of each option carries the
+    mark, evaluated with the shared density/threshold classifier.  Returns the
+    list of checked option texts (multi-select for e.g. Hobbies, single for
+    e.g. Gender).
+    """
+    from util.checkbox_utils import _mark_kind
+    from util.image_utils import _load_gray, _threshold_gray
+    bin_img = _threshold_gray(_load_gray(workspace["image"]))
+    options_out = []
+    checked = []
+    for opt in field_copy.get("options") or []:
+        ob = opt.get("bbox")
+        if not ob or len(ob) != 4:
+            continue
+        px = [ob[0] * w, ob[1] * h, ob[2] * w, ob[3] * h]
+        mark = _mark_kind(bin_img, px)
+        is_checked = mark in ("X", "filled", "tick")
+        options_out.append({
+            "text": opt.get("text") or "",
+            "bbox": ob,
+            "checked": is_checked,
+            "mark_type": mark,
+        })
+        if is_checked:
+            checked.append((opt.get("text") or "").strip())
+    return {
+        "label": field_copy.get("label") or "",
+        "value": [c for c in checked if c],
+        "value_type": "checkbox_group",
+        "confidence": None,
+        "bbox": field_copy["value_bbox"],
+        "checked": bool(checked),
+        "options": options_out,
+    }
+
+
 def _extract_one(field_copy, workspace, w, h):
     """Extract a single field respecting checkbox regions and homography alignment."""
+    # Checkbox option groups bypass the single-checkbox IoU / OCR paths: each
+    # option's registered checkbox bbox carries the mark to evaluate.
+    if field_copy.get("kind") == "checkbox_group":
+        return _extract_checkbox_group(field_copy, workspace, w, h)
     vb = field_copy["value_bbox_px"]
     cb_match = None
     best_iou = 0.0

@@ -18,7 +18,7 @@ from util.form_utils import (
 )
 
 
-def process_form_fields(image, elements, table_bboxes=None, checkboxes=None):
+def process_form_fields(image, elements, table_bboxes=None, checkboxes=None, checkbox_group_bboxes=None):
     """
     Detect form fields for the document representation.
 
@@ -27,6 +27,8 @@ def process_form_fields(image, elements, table_bboxes=None, checkboxes=None):
         elements: raw OCR elements (with word boxes when available).
         table_bboxes: bboxes of detected tables (fields must avoid them).
         checkboxes: detected checkboxes (small boxes to avoid re-labeling).
+        checkbox_group_bboxes: macro-bboxes of detected checkbox option
+            groups (their whole area is not a writable field).
 
     Returns:
         (fields, input_regions, elements)
@@ -34,6 +36,7 @@ def process_form_fields(image, elements, table_bboxes=None, checkboxes=None):
     """
     table_bboxes = table_bboxes or []
     checkboxes = checkboxes or []
+    checkbox_group_bboxes = checkbox_group_bboxes or []
 
     print("[FIELDS] Detecting input regions...")
     input_regions = detect_input_regions(
@@ -41,6 +44,7 @@ def process_form_fields(image, elements, table_bboxes=None, checkboxes=None):
         elements=elements,
         table_bboxes=table_bboxes,
         checkboxes=checkboxes,
+        checkbox_group_bboxes=checkbox_group_bboxes,
     )
     print(f"[FIELDS] Input regions detected: {len(input_regions)}")
 
