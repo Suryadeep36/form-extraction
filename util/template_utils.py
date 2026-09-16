@@ -364,6 +364,14 @@ def build_template_fields(doc_rep, image_width, image_height):
         kind = region.get("kind") or "blank"
         rb = list(rb)
 
+        # Gap-blank regions only become fields when their label carries a ":"
+        # ("Total Marks Obtained:", "Technical subjects:" — the label cluster
+        # may also be "Total Marks Obtained: Out of"). A blank without any ":"
+        # is layout whitespace (e.g. the gap between the printed "Signature of
+        # Applicant" and "Date" labels), not a writable field, so drop it.
+        if kind == "blank" and ":" not in label_info["text"]:
+            continue
+
         # One value box per physical line. A label on its own row above the
         # underline (e.g. "Name :" / "______") is NOT an extra value line: the
         # value area is the underline(s). Only when a field's value really
