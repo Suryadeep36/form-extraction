@@ -648,6 +648,42 @@ def build_template_fields(doc_rep, image_width, image_height):
             result.append(field)
 
     result.sort(key=lambda f: (f["value_bbox"][1], f["value_bbox"][0]))
+
+    # Static background text found INSIDE a field's value area on the blank
+    # form (watermarks such as "Q123RF", printed decorations).  It is neither
+    # a label nor a value: it never changes on the filled form, so extraction
+    # must not read it back as a value.  Stored per field's area; extraction
+    # excludes any token overlapping these boxes.
+    label_boxes = [f["label_bbox"] for f in result if f.get("label_bbox")]
+    noise = []
+    for e in elements:
+        eb = e.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        if not (e.get("text") or "").strip():
+            continue
+        ecx = (eb[0] + eb[2]) / 2.0 / image_width
+        ecy = (eb[1] + eb[3]) / 2.0 / image_height
+        in_value = any(
+            f["value_bbox"][0] <= ecx <= f["value_bbox"][2]
+            and f["value_bbox"][1] <= ecy <= f["value_bbox"][3]
+            for f in result
+        )
+        if not in_value:
+            continue
+        is_label = any(
+            lb[0] <= ecx <= lb[2] and lb[1] <= ecy <= lb[3] for lb in label_boxes
+        )
+        if is_label:
+            continue
+        noise.append([
+            round(eb[0] / image_width, 5),
+            round(eb[1] / image_height, 5),
+            round(eb[2] / image_width, 5),
+            round(eb[3] / image_height, 5),
+        ])
+    doc_rep["static_noise"] = noise
+
     return result
 
 

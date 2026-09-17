@@ -173,6 +173,7 @@ def register_template(image_path, name=None):
         "image_height": h,
         "fields": fields,
         "tables": tables,
+        "static_noise": doc_rep.get("static_noise") or [],
         "created_at": None,
         "reference_image": info["image"],
     }
@@ -247,11 +248,20 @@ def extract_filled(template, image_path):
         if f.get("label_bbox"):
             global_labels_px.append(norm_to_px(f["label_bbox"]))
 
+    # Static background text recorded at registration (watermarks, printed
+    # decorations that sit inside a value area on the blank form).  Stored
+    # normalized; convert to the warped/template pixel space.
+    static_noise_px = []
+    for nb in (template.get("static_noise") or []):
+        if nb and len(nb) == 4:
+            static_noise_px.append(norm_to_px(nb))
+
     workspace = {
         "image": warped if transform.get("homography") is not None else info["image"],
         "element_px": aligned_elements,
         "checkboxes": doc_rep.get("checkboxes") or [],
         "global_labels_px": global_labels_px, # Injected here
+        "static_noise_px": static_noise_px,
     }
 
     extracted = []
@@ -494,7 +504,14 @@ def _extract_checkbox_group(field_copy, workspace, w, h):
         if not ob or len(ob) != 4:
             continue
         px = [ob[0] * w, ob[1] * h, ob[2] * w, ob[3] * h]
-        mark = _mark_kind(bin_img, px)
+        # The registered bbox is the checkbox RING, not its interior, so the
+        # ring's own frame would count as "ink" and make every box look filled.
+        # Shrink toward the centre to sample just the inside of the box where
+        # a real X / tick / fill mark lives.
+        ix1, iy1 = int(px[0]), int(px[1])
+        ix2, iy2 = int(px[2]), int(px[3])
+        shrink = max(1, int(round(min(iy2 - iy1, ix2 - ix1) * 0.22)))
+        mark = _mark_kind(bin_img, [ix1 + shrink, iy1 + shrink, ix2 - shrink, iy2 - shrink])
         is_checked = mark in ("X", "filled", "tick")
         options_out.append({
             "text": opt.get("text") or "",
@@ -563,17 +580,10 @@ def _extract_one(field_copy, workspace, w, h):
         cy = (bbox[1] + bbox[3]) / 2.0
         return region[0] <= cx <= region[2] and region[1] <= cy <= region[3]
 
-    def _excluded(token_bbox):
-        # Never exclude content squarely inside this field's value area even
-        # when it also overlaps a (full-width) registered label for this field.
-        if any(_center_in_region(token_bbox, b) for b in boxes):
-            return False
-        return _overlaps_any_label(token_bbox)
-
-    def _overlaps_any_label(bbox):
-        for l_px in workspace.get("global_labels_px", []):
-            ix1 = max(bbox[0], l_px[0]); iy1 = max(bbox[1], l_px[1])
-            ix2 = min(bbox[2], l_px[2]); iy2 = min(bbox[3], l_px[3])
+    def _overlaps_any_box(bbox, boxes):
+        for b in boxes:
+            ix1 = max(bbox[0], b[0]); iy1 = max(bbox[1], b[1])
+            ix2 = min(bbox[2], b[2]); iy2 = min(bbox[3], b[3])
             if ix2 <= ix1 or iy2 <= iy1:
                 continue
             inter = (ix2 - ix1) * (iy2 - iy1)
@@ -581,6 +591,26 @@ def _extract_one(field_copy, workspace, w, h):
             if area > 0 and inter / area > 0.3:
                 return True
         return False
+
+    def _overlaps_any_label(bbox):
+        return _overlaps_any_box(bbox, workspace.get("global_labels_px", []))
+
+    def _excluded(token_bbox):
+        # This field's own printed label can sit just inside the value window
+        # ("Address :" starts a line that is also the value line); never read
+        # our own label text back as the value.
+        own_label = field_copy.get("label_bbox_px")
+        if own_label and _overlaps_any_box(token_bbox, [own_label]):
+            return True
+        # Static background text (watermarks, decorations) that was present on
+        # the BLANK form and overlaps a value area must not leak into values.
+        if _overlaps_any_box(token_bbox, workspace.get("static_noise_px", [])):
+            return True
+        # Never exclude content squarely inside this field's value area even
+        # when it also overlaps a (full-width) registered label.
+        if any(_center_in_region(token_bbox, b) for b in boxes):
+            return False
+        return _overlaps_any_label(token_bbox)
 
     # Flatten each OCR element into its constituent tokens. Word-level boxes
     # split multi-field rows ("23 Out of 50") so that "23" lands in one blank
@@ -671,7 +701,7 @@ def _extract_one(field_copy, workspace, w, h):
             key = (id(e), id(tok))
             if key not in seen_keys:
                 seen_keys.add(key)
-                collected.append(tok)
+                collected.append((e, tok, tb))
 
     if not collected:
         return {
@@ -683,12 +713,34 @@ def _extract_one(field_copy, workspace, w, h):
             "source": "blank",
         }
 
-    # --- 4. Value Cleanup ---
+    # --- 4. Rebuild tokens in reading order --------------------------------
+    # OCR can return a line's per-word boxes in reverse order (emails read
+    # "com . gmail @ user" instead of "user@gmail.com").  When EVERY word of a
+    # source element landed in this field, trust the element's own recognized
+    # text - it preserves the true order - instead of resurrecting it from the
+    # shuffled word boxes.  Partial captures keep the per-word boxes.
+    groups = {}
+    for e, tok, tb in collected:
+        key = id(e)
+        if key not in groups:
+            words = [w for w in (e.get("words") or []) if (w.get("text") or "").strip()]
+            groups[key] = {"element": e, "word_count": len(words), "tokens": []}
+        groups[key]["tokens"].append((tok, tb))
+
+    merged = []
+    for g in groups.values():
+        if g["word_count"] > 1 and len(g["tokens"]) == g["word_count"]:
+            e = g["element"]
+            merged.append(({"bbox": list(e["bbox"]), "text": (e.get("text") or "").strip()}, e["bbox"]))
+        else:
+            merged.extend(g["tokens"])
+
+    # --- 5. Value Cleanup ---
     matched = sorted(
-        collected,
-        key=lambda e: ((e["bbox"][1] + e["bbox"][3]) / 2.0, e["bbox"][0]),
+        merged,
+        key=lambda t: ((t[1][1] + t[1][3]) / 2.0, t[1][0]),
     )
-    value = " ".join(e["text"].strip() for e in matched).strip()
+    value = " ".join(t[0]["text"].strip() for t in matched).strip()
     
     value = re.sub(r"^\s*:+\s*|\s*:+\s*$", "", value)
     value = _repair_date_range(value)
@@ -696,8 +748,8 @@ def _extract_one(field_copy, workspace, w, h):
     if value in (":", ""):
         value = None
         
-    conf = float(np.mean([e.get("confidence", 0.0) for e in matched]))
-    
+    conf = float(np.mean([t[0].get("confidence", 0.0) for t in matched]))
+
     return {
         "label": field_copy["label"],
         "value": value,
