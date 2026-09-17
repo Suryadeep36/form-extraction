@@ -88,19 +88,37 @@ def _ring_density(bin_img, x1, y1, x2, y2, band_frac=0.16):
 # Stage 1 - geometric checkbox contours
 # ---------------------------------------------------------------------------
 
+# A real drawn selection box (vs. a print glyph like o/a) is at least this
+# large.  Kept large enough to stay clear of book-print form3 noise (<=18px)
+# while admitting mobile_form's 52px table-row boxes.
+MIN_REAL_SCALE = 24
+
 def _checkbox_candidates(
     gray,
     min_area=90,
-    max_area=1600,
+    max_area=6400,
     min_aspect=0.6,
     max_aspect=1.5,
     exclude_bboxes=None,
 ):
     """Detect small closed square/oval selection boxes from pixel geometry.
 
-    Returns a list of {"bbox", "width", "height", "center"} candidates whose
-    windows genuinely look like a box rim (shared classifier), and whose
-    center is outside every exclusion bbox.
+    Two complementary passes (union, deduped on proximity):
+
+      1. contour pass   - morphological close + RETR_EXTERNAL, then gate with
+         the shared box-rim/ink classifier;
+      2. hole pass      - RETR_CCOMP ring+hole pairs.  A selection box rim
+         that TOUCHES surrounding gridlines merges with the grid into one
+         giant connected contour after the close, so the external pass cannot
+         isolate it.  The interior HOLE of such a ring is still a distinct
+         contour, so rings touching gridlines survive here.
+
+    Both passes keep only windows whose bounding area is in
+    [min_area, max_area] px^2, aspect in [min_aspect, max_aspect] and whose
+    frame/centre genuinely looks like a selection box (edge_dark >= 0.65,
+    banded centre nearly empty).  Returns a list of
+    {"bbox", "width", "height", "center"} candidates with center outside every
+    exclusion bbox.
     """
     bin_img = _threshold_gray(gray)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
@@ -160,6 +178,74 @@ def _checkbox_candidates(
             "height": float(h),
             "center": [cx, cy],
         })
+
+    # ---- Pass 2 - hole-based rings (survive gridline contact) ------------
+    # A closed selection box whose rim merges with table gridlines shares one
+    # giant external contour, but its interior is still a CCOMP hole.  The
+    # parent of that hole is the ring; gate it exactly like the contour pass.
+    cc_cnts, cc_hier = cv2.findContours(bin_img, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    if cc_hier is not None:
+        cc_hier = cc_hier[0]
+        for i, child in enumerate(cc_cnts):
+            parent = cc_hier[i][3]
+            if parent < 0:
+                continue  # only holes (children); their parent is a ring
+            x, y, w, h = cv2.boundingRect(cc_cnts[parent])
+            area = w * h
+            if not (min_area <= area <= max_area):
+                continue
+            aspect = w / float(h) if h else 0.0
+            if not (min_aspect <= aspect <= max_aspect):
+                continue
+            ring_area = cv2.contourArea(cc_cnts[parent])
+            if ring_area <= 0:
+                continue
+            ratio = cv2.contourArea(child) / ring_area
+            # Hollow selection box (thin/medium frame -> big interior hole).
+            # A solid dot or a text-glyph counter fills most of its window, so
+            # the hole/parent ratio is much smaller.
+            if not (0.35 <= ratio <= 0.97):
+                continue
+            bbox = [float(x), float(y), float(x + w), float(y + h)]
+            cx = x + w / 2.0
+            cy = y + h / 2.0
+            # A real-scale ring survives the close/grid merge specifically
+            # inside table areas (mobile_form), so let it through there; the
+            # contour pass above still honours the exclusion, and small text
+            # glyphs inside tables (form3) stay excluded.
+            in_table = any(
+                ex[0] <= cx <= ex[2] and ex[1] <= cy <= ex[3] for ex in exclude
+            )
+            if in_table and min(w, h) < MIN_REAL_SCALE:
+                continue
+            r = _ring_density(bin_img, int(x), int(y), int(x + w), int(y + h))
+            if r is None:
+                continue
+            outer_dark, center_dark = r
+            rc = _classify_window(bin_img, int(x), int(y), int(x + w), int(y + h))
+            if rc is None:
+                continue
+            edge_dark, _ = rc
+            if not (
+                edge_dark >= 0.65
+                and center_dark < 0.30
+                and center_dark <= 0.6 * outer_dark
+            ):
+                continue
+            # Dedupe against the contour-pass candidates (same ring found twice).
+            if any(
+                abs(c["center"][0] - cx) <= max(2.0, 0.4 * min(c["width"], float(w)))
+                and abs(c["center"][1] - cy) <= max(2.0, 0.4 * min(c["height"], float(h)))
+                for c in cands
+            ):
+                continue
+            cands.append({
+                "bbox": bbox,
+                "width": float(w),
+                "height": float(h),
+                "center": [cx, cy],
+            })
+
     return cands
 
 

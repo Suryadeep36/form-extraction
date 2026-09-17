@@ -582,6 +582,7 @@ def build_template_fields(doc_rep, image_width, image_height):
     # parent label comes from the shared `_label_for_region` on the group's
     # macro-box (searches Left then Up exactly like any other field).
     groups = doc_rep.get("checkbox_groups") or []
+    unnamed_idx = 0
     for group in groups:
         gb = group.get("bbox")
         if not gb or len(gb) != 4:
@@ -599,6 +600,12 @@ def build_template_fields(doc_rep, image_width, image_height):
                 label_info["bbox"][2] / image_width,
                 label_info["bbox"][3] / image_height,
             ]
+        # A checkbox group with no printed question label (e.g. a bare row of
+        # mutually-exclusive boxes on a form) is still a real field: number it
+        # so it is not silently dropped and has a usable name downstream.
+        if not label:
+            unnamed_idx += 1
+            label = f"Checkbox Group {unnamed_idx}"
         options = []
         for opt in group.get("options") or []:
             ob = opt.get("bbox")
