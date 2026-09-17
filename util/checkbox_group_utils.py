@@ -144,6 +144,12 @@ def _checkbox_candidates(
         area = w * h
         if not (min_area <= area <= max_area):
             continue
+        # A real drawn box is at least a few mm on the scan (>= MIN_REAL_SCALE
+        # px).  Printed letter glyphs / paragraph fragments / small counters
+        # are far smaller (<= 18px) and were the dominant false positive on
+        # dense-text forms (enroll_form): drop anything below the real scale.
+        if min(w, h) < MIN_REAL_SCALE:
+            continue
         aspect = w / float(h)
         if not (min_aspect <= aspect <= max_aspect):
             continue
@@ -179,45 +185,37 @@ def _checkbox_candidates(
             "center": [cx, cy],
         })
 
-    # ---- Pass 2 - hole-based rings (survive gridline contact) ------------
-    # A closed selection box whose rim merges with table gridlines shares one
-    # giant external contour, but its interior is still a CCOMP hole.  The
-    # parent of that hole is the ring; gate it exactly like the contour pass.
+    # ---- Pass 2 - hole-based rings (survive gridline / underline contact) ---
+    # A closed selection box whose rim merges with a long rule (option rows on
+    # scanned forms, e.g. enroll_form's "ACH FORMAT:  [ ] CCD+  [ ] CTX" where
+    # the box bottom joins the underline) shares one giant external contour, so
+    # the contour pass cannot bound it.  Its interior is still a CCOMP hole
+    # though.  Instead of gating the giant parent (whose bbox fails max_area)
+    # we re-derive the box from the HOLE: expand the hole bbox by an estimated
+    # ring thickness, then gate that window exactly like the contour pass.
     cc_cnts, cc_hier = cv2.findContours(bin_img, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     if cc_hier is not None:
         cc_hier = cc_hier[0]
-        for i, child in enumerate(cc_cnts):
-            parent = cc_hier[i][3]
-            if parent < 0:
-                continue  # only holes (children); their parent is a ring
-            x, y, w, h = cv2.boundingRect(cc_cnts[parent])
+        for i, hole in enumerate(cc_cnts):
+            if cc_hier[i][3] < 0:
+                continue  # only holes (children of a ring)
+            hx, hy, hw, hh = cv2.boundingRect(hole)
+            if hw < 5 or hh < 5:
+                continue
+            ring = max(3, min(8, int(round(min(hw, hh) * 0.12))))
+            x, y = hx - ring, hy - ring
+            w, h = hw + 2 * ring, hh + 2 * ring
             area = w * h
             if not (min_area <= area <= max_area):
+                continue
+            if min(w, h) < MIN_REAL_SCALE:
                 continue
             aspect = w / float(h) if h else 0.0
             if not (min_aspect <= aspect <= max_aspect):
                 continue
-            ring_area = cv2.contourArea(cc_cnts[parent])
-            if ring_area <= 0:
-                continue
-            ratio = cv2.contourArea(child) / ring_area
-            # Hollow selection box (thin/medium frame -> big interior hole).
-            # A solid dot or a text-glyph counter fills most of its window, so
-            # the hole/parent ratio is much smaller.
-            if not (0.35 <= ratio <= 0.97):
-                continue
             bbox = [float(x), float(y), float(x + w), float(y + h)]
             cx = x + w / 2.0
             cy = y + h / 2.0
-            # A real-scale ring survives the close/grid merge specifically
-            # inside table areas (mobile_form), so let it through there; the
-            # contour pass above still honours the exclusion, and small text
-            # glyphs inside tables (form3) stay excluded.
-            in_table = any(
-                ex[0] <= cx <= ex[2] and ex[1] <= cy <= ex[3] for ex in exclude
-            )
-            if in_table and min(w, h) < MIN_REAL_SCALE:
-                continue
             r = _ring_density(bin_img, int(x), int(y), int(x + w), int(y + h))
             if r is None:
                 continue
