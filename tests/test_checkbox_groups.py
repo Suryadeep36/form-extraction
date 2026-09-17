@@ -169,10 +169,61 @@ def test_extraction_blank_and_filled():
     assert re_["value"] == ["Commission Based"], re_["value"]
 
 
+def test_repeated_label_rows_and_adjacent_questions():
+    """Regression for the veteran Form 50-135 clustering bugs.
+
+    Three Yes/No rows share the SAME two columns and the SAME "Yes"/"No"
+    labels (a repeated-option table of separate sub-questions): each row must
+    stay its own [Yes, No] group - never one 6-option mega-group.  A
+    single-checkbox question row printed just above the table (60px away, well
+    inside the old relaxed 2x band) must NOT fuse into the table either.
+    """
+
+    def qbox(img, y1, x):
+        _ring(img, (x, y1, x + 36, y1 + 36))
+
+    img = np.full((H, W, 3), 255, dtype=np.uint8)
+    # Question row A (single): a 36px box next to a long option label.
+    qbox(img, 55, 250)
+    # Three Yes/No rows B, B2, B3 (pitch 60, identical box columns/labels).
+    for y in (115, 175, 235):
+        qbox(img, y, 500)
+        qbox(img, y, 600)
+
+    elements = [
+        _el("Loss of one or more limbs", (294, 58, 520, 80)),
+        _el("Are you the surviving spouse?", (70, 118, 300, 140)),
+        _el("Yes", (560, 120, 600, 142)),
+        _el("No", (660, 120, 690, 142)),
+        _el("Are you a surviving child?", (70, 178, 290, 200)),
+        _el("Yes", (560, 180, 600, 202)),
+        _el("No", (660, 180, 690, 202)),
+        _el("Unmarried?", (70, 238, 240, 260)),
+        _el("Yes", (560, 240, 600, 262)),
+        _el("No", (660, 240, 690, 262)),
+    ]
+
+    groups = detect_checkbox_groups(img, elements)
+    opt_sets = sorted(frozenset(o["text"] for o in g["options"]) for g in groups)
+
+    # One single-option group (row A) plus three independent [Yes, No] groups.
+    assert opt_sets == [
+        frozenset({"Loss of one or more limbs"}),
+        frozenset({"Yes", "No"}),
+        frozenset({"Yes", "No"}),
+        frozenset({"Yes", "No"}),
+    ], [sorted(s) for s in opt_sets]
+
+    for g in groups:
+        texts = [o["text"] for o in g["options"]]
+        assert texts.count("Yes") <= 1 and texts.count("No") <= 1, (g["bbox"], texts)
+
+
 def main():
     test_contour_filtering_and_binding_and_clustering()
     test_template_fields_emit_checkbox_groups()
     test_extraction_blank_and_filled()
+    test_repeated_label_rows_and_adjacent_questions()
     print("  [ok] checkbox-group detection / template / extraction")
 
 

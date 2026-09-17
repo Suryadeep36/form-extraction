@@ -224,11 +224,77 @@ def test_grid_cell_does_not_shadow_checkbox_group_label():
           kinds)
 
 
+def test_grid_cell_continuation_rows():
+    """A multi-line field's second row (empty bordered band directly below the
+    labelled cell, same outer walls) belongs to the same field: it must fuse
+    into grid_continuations and surface as a SECOND value box. A half-height
+    spacer band between fields must NOT fuse."""
+    w, h = 1700, 2200
+    img = np.full((h, w), 255, dtype=np.uint8)
+
+    def hline(y):
+        cv2.line(img, (87, y), (1613, y), 0, 2)
+
+    def vline(x, y1, y2):
+        cv2.line(img, (x, y1), (x, y2), 0, 2)
+
+    hline(100)
+    hline(200)
+    hline(300)
+    hline(350)
+    hline(450)
+    vline(100, 80, 480)
+    vline(900, 80, 480)
+
+    # Rows: [100,200] labelled ADDRESS:, [200,300] empty continuation row,
+    # [300,350] half-height spacer, [350,450] next field.
+    elements = [
+        _el("ADDRESS:", [112, 118, 200, 136]),
+        _el("CONTACT PERSON NAME:", [112, 368, 320, 386]),
+    ]
+    cells = _detect_grid_cells(
+        img, elements=elements, median_text_h=18.0,
+        table_bboxes=[], checkbox_group_bboxes=[],
+    )
+    for c in cells:
+        c["kind"] = "grid_cell"
+    address = next(c for c in cells if c["grid_label"] == "ADDRESS:")
+    left, top, right, bottom = address["bbox"]
+    conts = address.get("grid_continuations") or []
+    cont_ok = (
+        len(conts) == 1
+        and conts[0][0] == left and conts[0][2] == right
+        and conts[0][1] == bottom and conts[0][3] - conts[0][1] == bottom - top
+    )
+    check("empty continuation row fused into grid_continuations",
+          cont_ok, conts)
+
+    fields = build_template_fields(
+        {"elements": elements, "input_regions": cells}, w, h
+    )
+    address_field = next(f for f in fields if f["label"] == "ADDRESS:")
+    vboxes = address_field["value_bboxes"]
+    check("multi-row ADDRESS gets two value boxes", len(vboxes) == 2, vboxes)
+    check("second value box covers the continuation row",
+          vboxes[1] == [round(left / w, 5), round(bottom / h, 5),
+                        round(right / w, 5), round((bottom + (bottom - top)) / h, 5)],
+          vboxes)
+    check("value_bbox unions both rows",
+          address_field["value_bbox"] == [
+              round(left / w, 5), round(top / h, 5),
+              round(right / w, 5), round((bottom + (bottom - top)) / h, 5),
+          ], address_field["value_bbox"])
+    contact = next(f for f in fields if f["label"] == "CONTACT PERSON NAME:")
+    check("following field unaffected (no continuation)", len(contact["value_bboxes"]) == 1,
+          contact["value_bboxes"])
+
+
 def main():
     test_grid_cell_detection()
     test_no_cell_for_title_band()
     test_grid_cell_field_registration()
     test_grid_cell_does_not_shadow_checkbox_group_label()
+    test_grid_cell_continuation_rows()
     print()
     if FAILURES:
         print(f"FAILURES ({len(FAILURES)}): {FAILURES}")

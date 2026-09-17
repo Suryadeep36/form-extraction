@@ -138,11 +138,17 @@ def build_document_representation(image, image_path=None):
     heights = [e.get("height") for e in raw_elements if e.get("height")]
     median_text_h = float(np.median(heights)) if heights else 20.0
     print("Detecting checkbox groups...")
+    # Do NOT exclude table bboxes here: genuine option checkboxes routinely
+    # live inside regions the table model flags as "tables" (the Yes/No
+    # response section of Form 50-135, for example).  Center-excluding those
+    # cells silently erased every Yes/No option.  Table cells themselves are
+    # already rejected by the grid-ruling + inner-text veto gates inside
+    # `_checkbox_candidates`; overlap with input regions is handled later via
+    # `checkbox_group_bboxes` when input regions are built.
     checkbox_groups = detect_checkbox_groups(
         image,
         raw_elements,
         median_text_h=median_text_h,
-        exclude_bboxes=table_bboxes,
     )
     print(f"Checkbox groups: {len(checkbox_groups)}")
 

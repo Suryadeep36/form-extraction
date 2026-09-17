@@ -619,10 +619,15 @@ def build_template_fields(doc_rep, image_width, image_height):
         # One value box per physical line. A label on its own row above the
         # underline (e.g. "Name :" / "______") is NOT an extra value line: the
         # value area is the underline(s). Only when a field's value really
-        # spans several printed rows (an underline plus stacked orphans) do we
-        # keep one box per row.
+        # spans several printed rows (an underline plus stacked orphans, or a
+        # grid cell plus its empty continuation rows below it) do we keep one
+        # box per row.
         boxes = [rb]
-        if kind == "underline":
+        if kind == "grid_cell":
+            conts = region.get("grid_continuations")
+            if conts:
+                boxes = [rb] + [list(c) for c in conts]
+        elif kind == "underline":
             parents = adopted_rows.get(id(region))
             if parents:
                 # The merged band = parent underline + adopted orphans; restore

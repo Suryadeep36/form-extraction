@@ -171,6 +171,7 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
                 "confidence": cell["confidence"],
                 "grid_label": cell["grid_label"],
                 "grid_label_bbox": cell["grid_label_bbox"],
+                "grid_continuations": cell.get("grid_continuations"),
             }
         )
 
@@ -230,6 +231,7 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
         if region.get("kind") == "grid_cell":
             entry["grid_label"] = region.get("grid_label")
             entry["grid_label_bbox"] = region.get("grid_label_bbox")
+            entry["grid_continuations"] = region.get("grid_continuations")
         regions.append(entry)
 
     return regions
@@ -457,18 +459,29 @@ def _detect_grid_cells(
     median_gap = float(np.median(gaps)) if gaps else 0.0
     max_cell_h = max(2.5 * median_gap, 3.0 * mh, 60.0)
 
+    # Per-band column dividers (top -> sorted spanning x values). Cached so the
+    # continuation pass below can re-check bands without recomputation.
+    band_walls = {}
+    for top, bottom in zip(row_rules, row_rules[1:]):
+        if bottom - top < 1.6 * mh:
+            band_walls[top] = []
+            continue
+        walls = []
+        for s in v_segments:
+            span = min(bottom, s["y2"]) - max(top, s["y1"])
+            if span >= max(min(col_span_ratio * (bottom - top), 30.0), 20.0):
+                walls.append(s["x"])
+        band_walls[top] = sorted(
+            {round(x, 1) for x in walls if 0 < x < w}
+        )
+
     cells = []
     for top, bottom in zip(row_rules, row_rules[1:]):
         band_h = bottom - top
         if band_h < 1.6 * mh or band_h > max_cell_h:
             continue
 
-        walls = []
-        for s in v_segments:
-            span = min(bottom, s["y2"]) - max(top, s["y1"])
-            if span >= max(min(col_span_ratio * band_h, 30.0), 20.0):
-                walls.append(s["x"])
-        walls = sorted({round(x, 1) for x in walls if 0 < x < w})
+        walls = band_walls[top]
         if len(walls) < 2:
             continue
 
@@ -509,7 +522,54 @@ def _detect_grid_cells(
                 }
             )
 
+    # Continuation rows: an empty full-height band directly below a labelled
+    # cell is that cell's extra writing line, exactly as a second blank
+    # underline is fused into a single-line field. A multi-line field such as
+    # "ADDRESS:" has its label printed at the top of the first row and a blank
+    # second row below it; both rows belong to the same value. Half-height gaps
+    # (section spacers) and bands that carry printed text stop the chain.
+    cont_min_h = max(1.6 * mh, 0.75 * median_gap)
+    band_list = list(zip(row_rules, row_rules[1:]))
+    top_index = {top: i for i, top in enumerate(row_rules)}
+    for cell in cells:
+        ctop = cell["bbox"][1]
+        left, right = cell["bbox"][0], cell["bbox"][2]
+        conts = []
+        for top2, bottom2 in band_list[top_index.get(ctop, 0) + 1:]:
+            band_h = bottom2 - top2
+            if band_h < cont_min_h:
+                break
+            if _band_contains_text(top2, bottom2, elements):
+                break
+            walls2 = band_walls.get(top2, [])
+            if len(walls2) < 2:
+                break
+            # A continuation must span the SAME columns as the parent cell (for
+            # a full-width cell that means no interior divider below it).
+            if walls2[0] == left and walls2[-1] == right:
+                conts.append([left, top2, right, bottom2])
+            else:
+                break
+        if conts:
+            cell["grid_continuations"] = conts
+
     return cells
+
+
+def _band_contains_text(top, bottom, elements):
+    """True when any OCR element's center lies inside the horizontal band."""
+    if not elements:
+        return False
+    for el in elements:
+        eb = el.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        cy = el.get("center", [None, None])[1]
+        if cy is None:
+            cy = (eb[1] + eb[3]) / 2.0
+        if top <= cy <= bottom:
+            return True
+    return False
 
 
 def _detect_blank_gaps(elements, gray, gap_ratio=0.012):
