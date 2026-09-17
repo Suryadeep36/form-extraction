@@ -303,6 +303,18 @@ def _label_for_region(region, elements, median_text_h, exclude_texts=None):
     # loosen beyond the old guarantee on large text.
     max_dist = min(15 * mh, 200)
 
+    # Cell-based / grid forms: the field's label is printed INSIDE the cell,
+    # anchored at its top-left ("CONTACT PERSON NAME:" over a blank bordered
+    # writing box). Look inside first -- the detector already picked the top
+    # line of interior text -- before any outside-label logic runs.
+    if region.get("kind") == "grid_cell":
+        gl = region.get("grid_label") or ""
+        if len(gl.strip()) >= 2 and re.search(r"[A-Za-z0-9\u00C0-\u024F]", gl):
+            glb = region.get("grid_label_bbox")
+            if glb and len(glb) == 4:
+                return {"text": gl.strip(), "bbox": glb}
+            return {"text": gl.strip(), "bbox": [x1, y1, x2, y2]}
+
     straddle = _find_straddle_prefix(region, elements, mh, tol)
     straddle_par = id(straddle["parent"]) if straddle else None
 
@@ -490,6 +502,22 @@ def build_template_fields(doc_rep, image_width, image_height):
     heights = [e.get("height") for e in elements if e.get("height")]
     median_text_h = float(np.median(heights)) if heights else 20.0
 
+    # Labels already owned by checkbox option groups ("TYPE OF ACCOUNT:",
+    # "ACH FORMAT:"). A grid cell must never duplicate one: the group's own
+    # field already carries the question label and its option boxes.
+    group_labels = set()
+    for group in doc_rep.get("checkbox_groups") or []:
+        gb = group.get("bbox")
+        if not gb or len(gb) != 4:
+            continue
+        gi = _label_for_region(
+            {"bbox": gb, "kind": "checkbox_group"}, elements, median_text_h,
+            exclude_texts={o.get("text", "").strip().lower()
+                           for o in (group.get("options") or [])} or None,
+        )
+        if gi and gi.get("text", "").strip():
+            group_labels.add(gi["text"].strip())
+
     # First pass: label every region; regions with no usable label become
     # orphans for the vertical-grouping sweep below.
     entries = []  # [(region, label_info)] — labelled fields
@@ -501,6 +529,15 @@ def build_template_fields(doc_rep, image_width, image_height):
         label_info = _label_for_region(region, elements, median_text_h)
         if label_info:
             label = label_info["text"]
+            # Grid-cell labels were validated inside the cell by the detector
+            # itself (top line of interior text), so the generic single-word /
+            # full-line heuristic below must not veto them (e.g. "SSN NO. OR
+            # TAXPAYER ID NO." ends with three dots).
+            if region.get("kind") == "grid_cell":
+                if label in group_labels:
+                    continue  # the checkbox group already owns this label
+                entries.append((region, label_info))
+                continue
             if _label_is_field_label(label):
                 entries.append((region, label_info))
                 continue

@@ -23,6 +23,8 @@ import util.config as config
 from util.image_utils import _load_gray, _threshold_gray
 from util.line_utils import (
     detect_line_segments,
+    merge_collinear_horizontal,
+    merge_collinear_vertical,
 )
 from util.geometry_utils import (
     _iou,
@@ -154,7 +156,25 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
             }
         )
 
-    # ---- 3. blank gaps between labels -------------------------------------
+    # ---- 3. grid cells (bordered single-cell fields) -----------------------
+    for cell in _detect_grid_cells(
+        gray,
+        elements=elements,
+        median_text_h=median_text_h,
+        table_bboxes=table_bboxes,
+        checkbox_group_bboxes=checkbox_group_bboxes,
+    ):
+        raw.append(
+            {
+                "kind": "grid_cell",
+                "bbox": cell["bbox"],
+                "confidence": cell["confidence"],
+                "grid_label": cell["grid_label"],
+                "grid_label_bbox": cell["grid_label_bbox"],
+            }
+        )
+
+    # ---- 4. blank gaps between labels -------------------------------------
     if elements:
         for gap in _detect_blank_gaps(elements, gray):
             if _inside_any_table(gap["bbox"], table_bboxes, overlap_ratio=0.45):
@@ -200,15 +220,17 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
 
     regions = []
     for i, region in enumerate(deduped):
-        regions.append(
-            {
-                "id": f"field_region_{i:03d}",
-                "kind": region["kind"],
-                "bbox": region["bbox"],
-                "source": "cv",
-                "confidence": region["confidence"],
-            }
-        )
+        entry = {
+            "id": f"field_region_{i:03d}",
+            "kind": region["kind"],
+            "bbox": region["bbox"],
+            "source": "cv",
+            "confidence": region["confidence"],
+        }
+        if region.get("kind") == "grid_cell":
+            entry["grid_label"] = region.get("grid_label")
+            entry["grid_label_bbox"] = region.get("grid_label_bbox")
+        regions.append(entry)
 
     return regions
 
@@ -299,6 +321,195 @@ def _detect_box_regions(gray, elements=None, min_ratio=0.004, max_ratio=0.22):
         deduped.append(box)
 
     return deduped[:80]
+
+
+def _cell_top_text(cell, elements, median_text_h):
+    """
+    Find the printed text that sits inside a grid cell.
+
+    Elements are sorted top-to-bottom then left-to-right; the TOP line inside
+    the cell is the cell's printed label ("CONTACT PERSON NAME:" at the top of
+    a bordered rectangle with a blank writing area beneath it).  Returns
+    {"text", "bbox"} or None when the cell contains no OCR text.
+    """
+    L, T, R, B = cell
+    if not elements:
+        return None
+    inside = []
+    for el in elements:
+        eb = el.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        cx = (eb[0] + eb[2]) / 2.0
+        cy = (eb[1] + eb[3]) / 2.0
+        if L <= cx <= R and T <= cy <= B:
+            inside.append(el)
+    if not inside:
+        return None
+    mh = max(float(median_text_h or 0), 1.0)
+    inside.sort(key=lambda e: (e["center"][1], e["center"][0]))
+    top = inside[0]
+    topsy = top["center"][1]
+    row_tol = max(8.0, 0.5 * mh)
+    line = [top]
+    for el in inside[1:]:
+        if el["center"][1] - topsy <= row_tol:
+            line.append(el)
+        else:
+            break
+    line.sort(key=lambda e: e["bbox"][0])
+    text = " ".join((el.get("text") or "").strip() for el in line).strip()
+    if not text:
+        return None
+    return {
+        "text": text,
+        "bbox": [
+            min(e["bbox"][0] for e in line),
+            min(e["bbox"][1] for e in line),
+            max(e["bbox"][2] for e in line),
+            max(e["bbox"][3] for e in line),
+        ],
+    }
+
+
+def _detect_grid_cells(
+    gray,
+    elements=None,
+    median_text_h=18.0,
+    table_bboxes=None,
+    checkbox_group_bboxes=None,
+    row_rule_ratio=0.30,
+    col_span_ratio=0.7,
+    min_blank_ratio=0.7,
+):
+    """
+    Detect "cell-based" / grid-layout input fields.
+
+    In a grid form the printed label and the blank writing area share ONE
+    bordered rectangle: the label is printed at the top of the cell and the
+    user writes in the space below it.  These cells are rarely a single closed
+    contour (the borders are thin), so the cell grid is rebuilt from the
+    form's line skeleton:
+
+        1. full-width horizontal rules -> row bands (each band is a row of
+           cells), and
+        2. vertical rules that span a band -> column dividers subdividing it.
+
+    A band segment becomes a cell field only when an OCR element (the label)
+    sits inside its top area with blank space beneath it (the writing area),
+    so section-title strips, blank separator rows, paragraphs and pure table
+    regions never become fields.
+
+    Returns a list of:
+        {
+            "bbox": [x1, y1, x2, y2],      # the FULL cell
+            "grid_label": str,              # top line inside the cell
+            "grid_label_bbox": [..],        # label bbox
+            "confidence": float,
+        }
+    """
+    h, w = gray.shape
+    mh = max(float(median_text_h or 0), 1.0)
+    elements = elements or []
+    table_bboxes = table_bboxes or []
+    checkbox_group_bboxes = checkbox_group_bboxes or []
+
+    # Row rules: horizontal segments spanning most of the page.
+    h_segments = detect_line_segments(
+        gray,
+        orientation="horizontal",
+        min_length_ratio=row_rule_ratio,
+        max_thickness=20,
+        kernel_scale=0.015,
+        connect_gap_ratio=0.015,
+    )
+    h_segments = merge_collinear_horizontal(
+        h_segments, y_tol=6, gap_tol_ratio=0.02, max_gap_px=60
+    )
+    row_rules = sorted(
+        {
+            round(s["y"], 1)
+            for s in h_segments
+            if s["length"] >= row_rule_ratio * w
+        }
+    )
+
+    v_segments = detect_line_segments(
+        gray,
+        orientation="vertical",
+        min_length_ratio=0.015,
+        max_thickness=12,
+        kernel_scale=0.015,
+        connect_gap_ratio=0.015,
+    )
+    v_segments = merge_collinear_vertical(
+        v_segments, x_tol=6, gap_tol_ratio=0.05, max_gap_px=40
+    )
+
+    if len(row_rules) < 2:
+        return []
+
+    # Typical cell height is 1-2 text rows; anything several rows taller is a
+    # section/privacy box, not a single labelled input cell.
+    gaps = [
+        b - a for a, b in zip(row_rules, row_rules[1:]) if b - a >= 1.6 * mh
+    ]
+    median_gap = float(np.median(gaps)) if gaps else 0.0
+    max_cell_h = max(2.5 * median_gap, 3.0 * mh, 60.0)
+
+    cells = []
+    for top, bottom in zip(row_rules, row_rules[1:]):
+        band_h = bottom - top
+        if band_h < 1.6 * mh or band_h > max_cell_h:
+            continue
+
+        walls = []
+        for s in v_segments:
+            span = min(bottom, s["y2"]) - max(top, s["y1"])
+            if span >= max(min(col_span_ratio * band_h, 30.0), 20.0):
+                walls.append(s["x"])
+        walls = sorted({round(x, 1) for x in walls if 0 < x < w})
+        if len(walls) < 2:
+            continue
+
+        xs = [walls[0]] + walls[1:-1] + [walls[-1]]
+        for L, R in zip(xs, xs[1:]):
+            if R - L < 60:
+                continue
+
+            cell = [L, top, R, bottom]
+            if _inside_any_table(cell, table_bboxes, overlap_ratio=0.45):
+                continue
+            if any(
+                _intersection_over_area(cell, gb) > 0.25
+                for gb in checkbox_group_bboxes
+            ):
+                continue
+
+            top_text = _cell_top_text(cell, elements, mh)
+            if not top_text or len(top_text["text"]) < 2:
+                continue
+
+            # A full-row heading (covers most of the cell width) is a section
+            # title, not a top-left cell label.
+            label_w = top_text["bbox"][2] - top_text["bbox"][0]
+            if label_w >= 0.8 * (R - L):
+                continue
+
+            # The blank writing area beneath the label.
+            if bottom - top_text["bbox"][3] < min_blank_ratio * mh:
+                continue
+
+            cells.append(
+                {
+                    "bbox": cell,
+                    "grid_label": top_text["text"],
+                    "grid_label_bbox": top_text["bbox"],
+                    "confidence": 0.35,
+                }
+            )
+
+    return cells
 
 
 def _detect_blank_gaps(elements, gray, gap_ratio=0.012):

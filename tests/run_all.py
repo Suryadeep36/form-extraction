@@ -36,6 +36,7 @@ import test_checkboxes as checkboxes
 import test_templates as templates
 import test_label_fixes as label_fixes
 import test_extraction as extraction
+import test_grid_cells as grid_cells
 
 FAILURES = []
 
@@ -213,6 +214,7 @@ def main():
         templates.test_template_register_extract,
         label_fixes.main,
         extraction.main,
+        grid_cells.main,
     ]
     if len(sys.argv) > 1 and sys.argv[1] == "--quick":
         tests = [test_leave_form_fields, test_wired_table_structure]
