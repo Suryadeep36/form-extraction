@@ -177,6 +177,32 @@ def test_underline_blank_not_grouped_as_multiline():
         check("box stays on the underline row", bboxes[0][1] * 1600 >= 1205, bboxes[0])
 
 
+def test_prompt_printed_inside_field_is_recovered_as_label():
+    # "Zip Code" is printed inside/below the top edge of its own value region,
+    # so `assign_ocr_to_input_regions` mis-tags it as a value. On registration
+    # (empty form) it must still become the label.
+    elements = [
+        {"text": "Zip Code", "bbox": [969, 259, 1065, 291], "center": [1017, 275], "is_value": True},
+        {"text": "Q123RF", "bbox": [388, 320, 484, 412], "center": [436, 366], "is_value": True},
+    ]
+    region = {"bbox": [952, 271, 1237, 315], "kind": "underline"}
+    li = _label_for_region(region, elements, 27.0)
+    check("inside-box prompt is a label", li is not None, repr(li))
+    if li:
+        check("inside-box prompt == 'Zip Code'", li["text"] == "Zip Code", repr(li["text"]))
+
+
+def test_huge_watermark_blob_not_a_label():
+    # A ~3x-text-height watermark overlapping the top edge of a box must not
+    # become that box's label.
+    elements = [
+        {"text": "Q123RF", "bbox": [388, 320, 484, 412], "center": [436, 366], "is_value": True},
+    ]
+    region = {"bbox": [29, 403, 516, 460], "kind": "box"}
+    li = _label_for_region(region, elements, 27.0)
+    check("watermark blob is not a label", li is None, repr(li))
+
+
 def test_orphan_over_headline_text_not_adopted():
     # "Qualifying Examination Marks..." underline is wider than its label and
     # overlaps printed text -> it is a heading, not the second address line,
@@ -205,6 +231,8 @@ def main():
     test_stacked_orphan_underline_adopted_into_address_field()
     test_single_underline_stays_single_value_box()
     test_underline_blank_not_grouped_as_multiline()
+    test_prompt_printed_inside_field_is_recovered_as_label()
+    test_huge_watermark_blob_not_a_label()
     test_orphan_over_headline_text_not_adopted()
 
     if FAILURES:

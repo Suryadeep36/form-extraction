@@ -283,11 +283,21 @@ def _label_for_region(region, elements, median_text_h):
 
     candidates = []
     for el in elements:
-        if el.get("is_value"):
-            continue
+        # Templates are registered from EMPTY forms, so any printed text that
+        # merely lies *inside* a region's value window (e.g. a prompt printed
+        # inside the field box, "Zip Code") is still a label, not a value.
+        # `assign_ocr_to_input_regions` may have mis-tagged it as `is_value`
+        # for geometry reasons. Only such elements are re-admitted, and only
+        # when they are normal text height hugging the region's top edge --
+        # a huge watermark blob overlapping a region must never become a label.
+        is_val = bool(el.get("is_value"))
         eb = el.get("bbox")
         if not eb or len(eb) != 4:
             continue
+        if is_val:
+            bh = eb[3] - eb[1]
+            if bh > 1.2 * mh or not (y1 - mh <= eb[3] <= y1 + mh):
+                continue
         text = (el.get("text") or "").strip()
         if len(text) < 2:
             continue
