@@ -94,6 +94,32 @@ def test_address_label_found_directly_above():
         check("Address label == 'Address:'", li["text"] == "Address:", repr(li["text"]))
 
 
+def test_colonless_single_word_attached_to_its_own_underline():
+    # trade_form: "Name of Applicant" row, then "Address" alone above its own
+    # underline. "Address" is a colon-less single word with no label siblings
+    # on its line, but it hugs its underline's start -> it IS that row's label.
+    # Without this both underlines collapse into "Name of Applicant".
+    elements = [
+        {"text": "Name of Applicant", "bbox": [196, 832, 458, 866], "center": [327, 849], "height": 34},
+        {"text": "Address", "bbox": [198, 895, 311, 927], "center": [254.5, 911], "height": 32},
+    ]
+    regions = [
+        {"bbox": [450, 840, 1503, 890], "kind": "underline"},
+        {"bbox": [297, 903, 1502, 953], "kind": "underline"},
+    ]
+    fields = _run(regions, elements, w=1673, h=2182)
+    labels = [f["label"] for f in fields]
+    check("two separate fields", len(fields) == 2, labels)
+    check("name field labelled", "Name of Applicant" in labels, labels)
+    check("address field labelled", "Address" in labels, labels)
+    if len(fields) == 2:
+        name = next(f for f in fields if f["label"] == "Name of Applicant")["value_bbox"]
+        addr = next(f for f in fields if f["label"] == "Address")["value_bbox"]
+        check("name keeps own row (no bleed to address)", name[3] < 0.425, [name, addr])
+        check("address row sits below name", addr[1] > name[1] and addr[3] > name[3], [name, addr])
+        check("address value is its own row", 0.40 < addr[1] < addr[3] < 0.445, addr)
+
+
 def test_header_noise_not_taken_as_upward_label():
     # Watermark junk ('AHA' / 'or o.') has no ':' -> must not become a label.
     elements = [
@@ -227,6 +253,7 @@ def main():
     test_dob_slashed_line_label_uses_word_prefix()
     test_board_multiline_label_recovered_from_above()
     test_address_label_found_directly_above()
+    test_colonless_single_word_attached_to_its_own_underline()
     test_header_noise_not_taken_as_upward_label()
     test_stacked_orphan_underline_adopted_into_address_field()
     test_single_underline_stays_single_value_box()

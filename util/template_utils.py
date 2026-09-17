@@ -140,6 +140,27 @@ def _is_label_row_member(el, elements, median_text_h):
     return False
 
 
+def _is_attached_word(lb, rb, mh):
+    """
+    True when a single-word label hugs the region's START: printed over/at its
+    top-left corner (e.g. "Address" directly above its own underline).  These
+    words are a region's OWN printed label even when the line holds no label
+    siblings, so the colon-less single-word rejection must not drop them.
+    Watermark junk differs because it starts *inside* the region, not near its
+    left edge.
+    """
+    x1, y1 = rb[0], rb[1]
+    if not (lb[0] < x1 + mh):          # starts at/left of the region start
+        return False
+    if not (lb[2] > x1):               # reaches the region edge
+        return False
+    if not (lb[1] >= y1 - 1.5 * mh):   # not floating arbitrarily far above
+        return False
+    if not (lb[3] <= y1 + mh):         # hugs the top edge, doesn't sink in
+        return False
+    return True
+
+
 def _find_straddle_prefix(region, elements, median_text_h, tol):
     """
     Recover a label prefix from a glued OCR element whose box crosses the
@@ -188,6 +209,10 @@ def _find_straddle_prefix(region, elements, median_text_h, tol):
             ).strip()
         wtext = re.sub(r"\s+", " ", wtext)
         if len(wtext) < 2 or re.fullmatch(r"[\\/‑–—\-\u2212]+", wtext):
+            continue
+        # Punctuation-only glue (":()", ":::", stray "()") is formatting, not a
+        # recoverable label prefix; require at least one enumerated character.
+        if not re.search(r"[A-Za-z0-9\u00C0-\u024F]", wtext):
             continue
         bbox = [
             min(w["bbox"][0] for w in kept),
@@ -242,7 +267,7 @@ def _closest_above(rb, elements, median_text_h):
     return best
 
 
-def _label_for_region(region, elements, median_text_h):
+def _label_for_region(region, elements, median_text_h, exclude_texts=None):
     """
     Find the printed label for an input region by minimum distance.
 
@@ -301,9 +326,32 @@ def _label_for_region(region, elements, median_text_h):
         text = (el.get("text") or "").strip()
         if len(text) < 2:
             continue
+        # A checkbox group's own option text is never its question label.
+        if exclude_texts and text.lower() in exclude_texts:
+            continue
+        # A label must carry a real word: punctuation-only tokens such as a
+        # phone-number format remnant (":()" from "Home Telephone No: (___)")
+        # or a stray "()" are formatting noise, never a field label.
+        if not re.search(r"[A-Za-z0-9\u00C0-\u024F]", text):
+            continue
         cy = el.get("center", [None, None])[1]
         if cy is None:
             cy = (eb[1] + eb[3]) / 2.0
+
+        # Checkbox groups: the question label hugs the cluster's top-left, on
+        # the group's own first row ("Applicant is ☐ Individual ☐ ...").  The
+        # macro-box already absorbed it, so admit text starting near the left
+        # edge that rides the group's first band -- and give it row-label
+        # priority over column headings floating above.
+        if (region.get("kind") == "checkbox_group"
+                and eb[0] < x1 + 2.5 * mh
+                and y1 - 1.5 * mh <= eb[1] <= y1 + mh):
+            dx, dy = _region_gap(rb, eb)
+            candidates.append({
+                "text": text, "bbox": eb, "el": el,
+                "dist": math.hypot(dx, dy), "above": False,
+            })
+            continue
 
         # 1. Straddling glue: the raw element is consumed by its prefix.
         if id(el) == straddle_par:
@@ -319,6 +367,20 @@ def _label_for_region(region, elements, median_text_h):
 
         # 2. Above / column label.
         if above_lo <= cy <= above_hi and min(eb[2], x2) - max(eb[0], x1) > 0:
+            # Text on the SAME printed line (centre at/under the region's top
+            # edge) is only a plausible "above" label when it hugs the region's
+            # left label zone.  A same-line neighbour sitting further right
+            # (e.g. "State:" printed under the far end of the City underline)
+            # must not win with a phantom zero-distance overlap on the far side.
+            if cy >= y1 - 0.5 * mh and eb[0] > x1 + 2 * mh:
+                continue
+            # A checkbox group's question label sits at its left; a stray
+            # column heading floating just above the cluster's far right
+            # side ("city"/"state"/"zip" over a previously printed row) is
+            # not it.  Headings over the group's own left half survive.
+            if (region.get("kind") == "checkbox_group"
+                    and eb[0] > x1 + 0.35 * (x2 - x1)):
+                continue
             dx, dy = _region_gap(rb, eb)
             candidates.append({
                 "text": text, "bbox": eb, "el": el,
@@ -357,10 +419,13 @@ def _label_for_region(region, elements, median_text_h):
     # An isolated colon-less single word ("AHA", stray header noise) is not a
     # label unless it rides a real row of printed labels. The exception is a
     # checkbox group: a lone word printed directly above/left of a cluster of
-    # selection boxes ("Gender", "Sex") IS its question label.
+    # selection boxes ("Gender", "Sex") IS its question label. A single word
+    # that is geometrically ATTACHED to the region's start ("Address" printed
+    # over its own underline) is that region's real label and passes too.
     if ":" not in text and len(text.split()) == 1:
         if region.get("kind") != "checkbox_group":
-            if not _is_label_row_member(best["el"], elements, mh):
+            if (not _is_label_row_member(best["el"], elements, mh)
+                    and not _is_attached_word(bbox, rb, mh)):
                 return None
 
     # A full-line heading printed over the value region (spans >= 72% of the
@@ -588,7 +653,9 @@ def build_template_fields(doc_rep, image_width, image_height):
         if not gb or len(gb) != 4:
             continue
         label_info = _label_for_region(
-            {"bbox": gb, "kind": "checkbox_group"}, elements, median_text_h
+            {"bbox": gb, "kind": "checkbox_group"}, elements, median_text_h,
+            exclude_texts={o.get("text", "").strip().lower()
+                           for o in (group.get("options") or [])} or None,
         )
         label = ""
         label_bbox = None

@@ -40,6 +40,29 @@ from util.geometry_utils import (
 # Input-region detection
 # ---------------------------------------------------------------------------
 
+def _is_field_continuation(all_segments, seg, median_text_h):
+    """
+    True when a near-full-width underline is the second (continuation) row of
+    a field: a shorter underline sits directly above it within a couple of text
+    heights, overlapping most of the full-width line's length.  These multi-row
+    fields ("General nature of business ____ / ______________") must keep their
+    second line as an input region instead of being dropped as a page rule.
+    """
+    mh = max(float(median_text_h or 0), 1.0)
+    gap_max = 2.2 * mh
+    seg_len = max(seg["length"], 1.0)
+    for other in all_segments:
+        if other is seg:
+            continue
+        gap = seg["y"] - other["y"]
+        if gap < 4 or gap > gap_max:
+            continue
+        xov = min(seg["x2"], other["x2"]) - max(seg["x1"], other["x1"])
+        if xov >= 0.5 * seg_len:
+            return True
+    return False
+
+
 def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkboxes=None, checkbox_group_bboxes=None):
     """
     Detect input regions from visual evidence: underlines, small boxes and
@@ -94,14 +117,16 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
         if _inside_any_table(bbox, table_bboxes, overlap_ratio=0.45):
             continue
 
-        # A field underline is typically not a full-width page rule. Only skip
+                # A field underline is typically not a full-width page rule. Only skip
         # segments that span essentially the whole page AND start at the left
         # margin; a long field underline (e.g. the second address row, which
-        # starts right of its label) must survive.
+        # starts right of its label) must survive. Don't skip a line that is
+        # the continuation row of a labelled field sitting just above it.
         if (
             seg["length"] > w * 0.75
             and seg["x1"] < w * 0.12
             and seg["x2"] > w * 0.85
+            and not _is_field_continuation(merged, seg, median_text_h)
         ):
             continue
 
