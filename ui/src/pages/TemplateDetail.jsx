@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useLayoutEffect } from "react";
+import { useEffect, useState, useRef, useLayoutEffect, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
 import { API_BASE } from "../api.js";
 
@@ -9,6 +9,8 @@ function formatDate(iso) {
       year: "numeric",
       month: "short",
       day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   } catch {
     return iso;
@@ -428,6 +430,9 @@ export default function TemplateDetail() {
   const [template, setTemplate] = useState(null);
   const [error, setError] = useState(null);
   const [loadingExtract, setLoadingExtract] = useState(false);
+  const [loadingFilled, setLoadingFilled] = useState(false);
+  const [filledForms, setFilledForms] = useState([]);
+  const [loadedFilledId, setLoadedFilledId] = useState(null);
   const [result, setResult] = useState(null);
   const [frame, setFrame] = useState(null);
   const [frameTick, setFrameTick] = useState(0);
@@ -479,6 +484,65 @@ export default function TemplateDetail() {
     };
   }, [id]);
 
+  const loadFilledForms = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/templates/${id}/filled-forms`);
+      if (!res.ok) return;
+      const json = await res.json();
+      setFilledForms(json.filled_forms || []);
+    } catch (err) {
+      console.error("Failed to load saved filled forms:", err);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    loadFilledForms();
+  }, [loadFilledForms]);
+
+  const openFilled = async (filledId) => {
+    setLoadingFilled(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/filled-forms/${filledId}`);
+      if (!res.ok) {
+        let detail = `Server responded with status: ${res.status}`;
+        try {
+          const body = await res.json();
+          if (body.detail) detail = body.detail;
+        } catch {
+          // ignore
+        }
+        throw new Error(detail);
+      }
+      const json = await res.json();
+      setResult(json.filled_form?.extraction || null);
+      setLoadedFilledId(filledId);
+    } catch (err) {
+      console.error("Failed to load saved filled form:", err);
+      setError(err.message || "Failed to load saved filled form.");
+    } finally {
+      setLoadingFilled(false);
+    }
+  };
+
+  const deleteFilled = async (filledId) => {
+    if (!window.confirm("Delete this saved filled form?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/filled-forms/${filledId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error(`Server responded with status: ${res.status}`);
+      if (loadedFilledId === filledId) {
+        setResult(null);
+        setLoadedFilledId(null);
+      }
+      await loadFilledForms();
+    } catch (err) {
+      console.error("Failed to delete saved filled form:", err);
+      setError(err.message || "Failed to delete saved filled form.");
+    }
+  };
+
   const handleExtract = async () => {
     const file = fileRef.current?.files?.[0];
     if (!file) return;
@@ -491,7 +555,9 @@ export default function TemplateDetail() {
       formData.append("image", file);
       formData.append("template_id", id);
 
-      const res = await fetch(`${API_BASE}/extract-filled`, {
+      // Saving happens server-side: the extraction is stored on disk, so it
+      // survives a refresh and shows up in the "Saved Filled Forms" list.
+      const res = await fetch(`${API_BASE}/filled-forms`, {
         method: "POST",
         body: formData,
       });
@@ -506,7 +572,10 @@ export default function TemplateDetail() {
         throw new Error(detail);
       }
       const json = await res.json();
-      setResult(json.extraction);
+      const record = json.filled_form || {};
+      setResult(record.extraction || null);
+      setLoadedFilledId(record.id || null);
+      await loadFilledForms();
     } catch (err) {
       console.error("Failed to extract filled form:", err);
       setError(err.message || "Failed to extract filled form.");
@@ -574,6 +643,10 @@ export default function TemplateDetail() {
             {template.table_count > 0
               ? ` · ${template.table_count} table(s)`
               : ""}
+            {" · "}
+            <span className="text-gray-500">
+              {filledForms.length} saved filled form(s)
+            </span>
           </p>
         </div>
       </header>
@@ -803,9 +876,75 @@ export default function TemplateDetail() {
               </button>
             </div>
             <p className="text-xs text-gray-400 mt-2">
-              The filled copy is aligned to the template and each field's value
-              is read by OCR.
+              The filled copy is aligned to the template, each field's value is
+              read by OCR, and the result is saved automatically so you never
+              have to re-upload after a refresh.
             </p>
+          </div>
+
+          {/* Saved filled forms */}
+          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
+                Saved Filled Forms
+              </h3>
+              {loadingFilled ? (
+                <span className="text-xs text-gray-400">Loading…</span>
+              ) : (
+                <span className="text-xs text-gray-400">
+                  {filledForms.length} saved
+                </span>
+              )}
+            </div>
+            {filledForms.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">
+                No filled forms saved yet. Upload one above and it will be
+                stored here automatically.
+              </p>
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {filledForms.map((ff) => (
+                  <li
+                    key={ff.id}
+                    className="py-2 flex items-center gap-3 group"
+                  >
+                    <button
+                      onClick={() => openFilled(ff.id)}
+                      className={`flex-1 min-w-0 text-left rounded px-2 py-1.5 transition-colors ${
+                        loadedFilledId === ff.id
+                          ? "bg-blue-50"
+                          : "hover:bg-gray-50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {loadedFilledId === ff.id && (
+                          <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                        )}
+                        <span
+                          className="font-medium text-sm text-gray-800 truncate"
+                          title={ff.source_filename}
+                        >
+                          {ff.source_filename}
+                        </span>
+                        <span className="text-[10px] text-gray-400 shrink-0">
+                          {ff.field_count}f · {ff.table_count}t
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {formatDate(ff.created_at)}
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => deleteFilled(ff.id)}
+                      title="Delete saved filled form"
+                      className="text-xs font-medium text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded"
+                    >
+                      Delete
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           {error && (

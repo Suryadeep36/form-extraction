@@ -33,6 +33,12 @@ from service.template_service import (
     list_templates,
     get_template_image,
 )
+from service.filled_form_service import (
+    save_filled_form,
+    list_filled_forms,
+    load_filled_form,
+    delete_filled_form,
+)
 
 
 @asynccontextmanager
@@ -357,6 +363,59 @@ async def extract_filled_endpoint(
     finally:
         if os.path.exists(image_path):
             os.remove(image_path)
+
+
+# ---------------------------------------------------------
+# Saved FILLED forms (file-backed, so a filled form does not
+# need re-uploading after refresh — it is stored + reopened
+# like the empty templates above).
+# ---------------------------------------------------------
+
+@app.post("/filled-forms")
+async def filled_forms_create(
+    image: UploadFile = File(...),
+    template_id: str = Form(...),
+):
+    image_path, filename = _save_upload(image)
+    try:
+        template = load_template(template_id, with_reference=True)
+        if template is None:
+            raise HTTPException(status_code=404, detail="Template not found.")
+        record = save_filled_form(template, image_path, source_filename=filename)
+        return {"success": True, "filled_form": record}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[FILLED] save failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save filled form: {e}")
+    finally:
+        if os.path.exists(image_path):
+            os.remove(image_path)
+
+
+@app.get("/filled-forms")
+async def filled_forms_list(template_id: str = None):
+    return {"filled_forms": list_filled_forms(template_id)}
+
+
+@app.get("/templates/{template_id}/filled-forms")
+async def filled_forms_list_for_template(template_id: str):
+    return {"filled_forms": list_filled_forms(template_id)}
+
+
+@app.get("/filled-forms/{filled_id}")
+async def filled_forms_get(filled_id: str):
+    record = load_filled_form(filled_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Filled form not found.")
+    return {"filled_form": record}
+
+
+@app.delete("/filled-forms/{filled_id}")
+async def filled_forms_delete(filled_id: str):
+    if not delete_filled_form(filled_id):
+        raise HTTPException(status_code=404, detail="Filled form not found.")
+    return {"success": True}
 
 
 # ---------------------------------------------------------
