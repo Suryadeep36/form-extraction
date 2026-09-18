@@ -141,6 +141,7 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
         )
 
     # ---- 2. box fields ----------------------------------------------------
+    box_regions = []
     for box in _detect_box_regions(gray, elements):
         if _inside_any_table(box["bbox"], table_bboxes, overlap_ratio=0.45):
             continue
@@ -148,13 +149,30 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
             continue
         if any(_intersection_over_area(box["bbox"], gb) > 0.25 for gb in checkbox_group_bboxes):
             continue
-        raw.append(
-            {
-                "kind": "box",
-                "bbox": box["bbox"],
-                "confidence": 0.7,
-            }
-        )
+        entry = {
+            "kind": "box",
+            "bbox": box["bbox"],
+            "confidence": 0.7,
+        }
+        cap = _caption_for_unlabelled_box(box["bbox"], elements, median_text_h)
+        if cap:
+            entry["label"] = cap["text"]
+            entry["label_bbox"] = cap["bbox"]
+        box_regions.append(entry)
+    raw.extend(box_regions)
+
+    # ---- 2b. caption-under-rule fields (line or box above a small name) -----
+    # A value rule whose field name is printed as a SMALL caption directly
+    # beneath it ("______ / address").  These rules are faint/dashed or
+    # full-width page lines that the underline pass drops, so they currently
+    # register no field at all; the caption is their signature.
+    for cap in _detect_caption_fields(gray, elements, median_text_h):
+        # No _inside_any_table gate here (unlike every other pass): the ML
+        # table model over-flags whole caption rows as zero-cell "tables"
+        # (e.g. [60,186,1610,565] on the veteran form), which would swallow
+        # every real caption field. The caption itself - a SMALL printed name
+        # under a bare writing rule - is the stronger signature.
+        raw.append(cap)
 
     # ---- 3. grid cells (bordered single-cell fields) -----------------------
     for cell in _detect_grid_cells(
@@ -232,6 +250,9 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
             entry["grid_label"] = region.get("grid_label")
             entry["grid_label_bbox"] = region.get("grid_label_bbox")
             entry["grid_continuations"] = region.get("grid_continuations")
+        if region.get("label"):
+            entry["label"] = region["label"]
+            entry["label_bbox"] = region.get("label_bbox") or region["bbox"]
         regions.append(entry)
 
     return regions
@@ -725,6 +746,269 @@ def _dedup_underline_segments(segments, y_tol=6, gap_tol=4.0, elements=None):
     for s in merged:
         s["length"] = s["x2"] - s["x1"]
     return merged
+
+
+# ---------------------------------------------------------------------------
+# Caption-under-rule fields
+# ---------------------------------------------------------------------------
+# Some forms print the field's name as a SMALL caption directly UNDER the
+# value rule instead of beside it:
+#
+#     _______________
+#     address
+#
+# The caption is the distinctive signal: its text is noticeably smaller than
+# the page's median text height, it hugs the rule's bottom edge, and it
+# overlaps the rule's x-range.  The rule itself is often faint / 1px / dashed
+# or a full-width line that the underline pass drops as a page rule, so it is
+# invisible to the normal input-region detection and produces no field at all.
+
+def _caption_candidates_below(bbox, elements, median_text_h):
+    """OCR elements directly beneath `bbox` that read as a field caption.
+
+    A caption is text printed BELOW the value rule: its top sits just under
+    the rule's bottom edge (within a small gap) and its body is SMALLER than
+    the page's median text height ("relatively smaller than everything
+    else").  It must also overlap the rule's x-range and carry a real word.
+
+    Returns the matching elements as
+    [{"text", "bbox", "height"}, ...] sorted left to right.
+    """
+    mh = max(float(median_text_h or 0), 1.0)
+    small_max = 0.9 * mh
+    lo = bbox[3] + 1.0
+    hi = bbox[3] + max(8.0, 0.6 * mh)
+    caps = []
+    for el in elements or []:
+        eb = el.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        h = eb[3] - eb[1]
+        if not (0.5 <= h <= small_max):
+            continue
+        text = (el.get("text") or "").strip()
+        if len(text) < 2:
+            continue
+        if not re.search(r"[A-Za-z0-9\u00C0-\u024F]", text):
+            continue
+        if not (lo <= eb[1] <= hi):
+            continue
+        xov = min(eb[2], bbox[2]) - max(eb[0], bbox[0])
+        if xov <= 0 or xov < (eb[2] - eb[0]) * 0.3:
+            continue
+        caps.append({"text": text, "bbox": eb, "height": h})
+    caps.sort(key=lambda c: c["bbox"][0])
+    return caps
+
+
+def _detect_caption_fields(gray, elements, median_text_h):
+    """Detect caption-under-line fields from horizontal rules.
+
+    Lines are scanned with a short minimum length so faint / dashed rules
+    survive (the underline pass needs longer segments and misses them), then
+    colinear dashes are merged into printed rows.  A row only becomes a field
+    when a small caption sits directly beneath it:
+
+      * one caption  -> one field spanning the whole row ("______ / address");
+      * many captions -> each caption gets its own field over the dashes
+        sitting above its cell ("Branch of Service | Disability Rating | ...").
+
+    Guards keep three decoys out:
+
+      * a caption that is the FIRST text of a printed BOX whose top edge is the
+        rule ("Property Tax", "Form 50-135" sitting right under a box border)
+        is not a field caption;
+      * a rule that UNDERLINES content printed above it (a footer page rule)
+        is not a caption rule - the writing line of a caption field is bare;
+      * rows whose length comes only from a couple of short decorative stubs.
+
+    Returns list of input-region dicts (kind "underline") carrying the caption
+    as their pre-validated label:
+        {"kind", "bbox", "label", "label_bbox", "source", "confidence"}
+    """
+    h, w = gray.shape
+    mh = max(float(median_text_h or 0), 1.0)
+
+    segments = detect_line_segments(
+        gray,
+        orientation="horizontal",
+        min_length_ratio=0.02,
+        max_thickness=30,
+        kernel_scale=0.02,
+        connect_gap_ratio=0.02,
+    )
+    if not segments:
+        return []
+
+    # Merge colinear dashes into printed rows (one underline per row).  The
+    # gap tolerance is generous on purpose: the pass only actives when a small
+    # caption sits below, and rows without any caption are skipped outright.
+    rows = []
+    for seg in sorted(segments, key=lambda s: (s["y"], s["x1"])):
+        placed = False
+        for row in rows:
+            if abs(row["y"] - seg["y"]) > 4:
+                continue
+            if seg["x1"] <= row["x2"] + 3.0 * mh and row["x1"] <= seg["x2"] + 3.0 * mh:
+                row["x1"] = min(row["x1"], seg["x1"])
+                row["x2"] = max(row["x2"], seg["x2"])
+                row["y"] = (row["y"] + seg["y"]) / 2.0
+                row["segs"].append(seg)
+                placed = True
+                break
+        if not placed:
+            rows.append({"y": seg["y"], "x1": seg["x1"], "x2": seg["x2"], "segs": [seg]})
+
+    # Closed rectangles ("boxes").  A caption that is merely the first text of
+    # a printed box whose top edge is our "rule" (a header label like
+    # "Property Tax" under its box border) must not be read as a field caption.
+    binary = _threshold_gray(gray)
+    contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    rects = [
+        [float(x), float(y), float(x + cw), float(y + ch)]
+        for c in contours
+        for x, y, cw, ch in [cv2.boundingRect(c)]
+        if cw >= 0.40 * mh and ch >= 0.40 * mh
+    ]
+
+    def box_header_line(line_y, line_x1, line_x2, cap):
+        """True when `cap` is the first text inside a closed box whose top
+        edge coincides with - or rides a few px above - the detected rule.
+
+        The tolerance is deliberate: the veteran header box has TWO top rules
+        ("Property Tax" under y87.5, "Form 50-135" under y95) so the caption's
+        reporting line sits below the box's strict top border.  A real caption
+        field's writing line is bare, so the box must contain the caption.
+
+        The detected row is NOT required to fit inside the box: the line
+        scanner inflates morphologically noisy rules beyond their true extent
+        (a synthetic 100-400 box border arrives as x84-420), so only the
+        caption's centre is tested.
+        """
+        ccx = (cap["bbox"][0] + cap["bbox"][2]) / 2.0
+        ccy = (cap["bbox"][1] + cap["bbox"][3]) / 2.0
+        top_lo = line_y - 0.4 * mh
+        for rx1, ry1, rx2, ry2 in rects:
+            if not (top_lo <= ry1 <= line_y + 2):
+                continue
+            if rx1 <= ccx <= rx2 and ry1 <= ccy <= ry2:
+                return True
+        return False
+
+    def text_above(line_y, line_x1, line_x2):
+        """True when printed text rides a rule that closes off content above
+        (a footer/page rule or an interior header border) instead of opening a
+        writing line below.
+
+        Checks the element BBOX against the band just above the rule; on the
+        veteran header the "Property Tax" label sits partly ABOVE and partly
+        BELOW its decorative rule, so a center-point test misses it while an
+        overlap test catches it.  A genuine writing rule has a bare band above
+        within its span."""
+        lo = line_y - 1.2 * mh
+        hi = line_y - 2.0
+        for el in elements or []:
+            eb = el.get("bbox")
+            if not eb or len(eb) != 4:
+                continue
+            if eb[3] <= lo or eb[1] >= hi:
+                continue
+            if min(eb[2], line_x2) - max(eb[0], line_x1) > 0:
+                return True
+        return False
+
+    min_row_len = max(120.0, 3.0 * mh)
+    pad = max(8.0, 0.8 * mh)
+    regions = []
+
+    for row in rows:
+        if row["x2"] - row["x1"] < min_row_len:
+            continue
+        caps = _caption_candidates_below(
+            [row["x1"], row["y"], row["x2"], row["y"]],
+            elements,
+            mh,
+        )
+        if not caps:
+            continue
+        lb = row["y"]
+        if len(caps) == 1:
+            cap = caps[0]
+            if text_above(lb, row["x1"], row["x2"]):
+                continue
+            if box_header_line(lb, row["x1"], row["x2"], cap):
+                continue
+            regions.append({
+                "kind": "underline",
+                "bbox": [row["x1"], lb - pad, row["x2"], lb + pad],
+                "label": cap["text"],
+                "label_bbox": cap["bbox"],
+                "source": "caption",
+                "confidence": 0.8,
+            })
+            continue
+        m = 0.5 * mh
+        for cap in caps:
+            if text_above(lb, row["x1"], row["x2"]):
+                continue
+            hit = [
+                s for s in row["segs"]
+                if (s["x1"] + s["x2"]) / 2.0 >= cap["bbox"][0] - m
+                and (s["x1"] + s["x2"]) / 2.0 <= cap["bbox"][2] + m
+            ]
+            if hit:
+                sx1 = min(s["x1"] for s in hit)
+                sx2 = max(s["x2"] for s in hit)
+            else:
+                sx1, sx2 = cap["bbox"][0], cap["bbox"][2]
+            if box_header_line(lb, sx1, sx2, cap):
+                continue
+            regions.append({
+                "kind": "underline",
+                "bbox": [sx1, lb - pad, sx2, lb + pad],
+                "label": cap["text"],
+                "label_bbox": cap["bbox"],
+                "source": "caption",
+                "confidence": 0.8,
+            })
+
+    return regions
+
+
+def _caption_for_unlabelled_box(box_bbox, elements, median_text_h):
+    """Attach a below-caption label to a box that has no label anywhere.
+
+    A value box printed above its field name ("[____]  /  address") looks the
+    same as the underline variant.  Only boxes that currently carry NO label
+    in the standard above / left zones are re-labelled with the small caption
+    beneath them, so labelled boxes keep their existing behaviour.
+    """
+    caps = _caption_candidates_below(box_bbox, elements, median_text_h)
+    if not caps:
+        return None
+    mh = max(float(median_text_h or 0), 1.0)
+    x1, y1, x2, y2 = box_bbox
+    tol = max(8.0, 0.4 * mh)
+    for el in elements or []:
+        eb = el.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        if el.get("is_value"):
+            continue
+        text = (el.get("text") or "").strip()
+        if len(text) < 2:
+            continue
+        if not re.search(r"[A-Za-z0-9\u00C0-\u024F]", text):
+            continue
+        cx = (eb[0] + eb[2]) / 2.0
+        cy = (eb[1] + eb[3]) / 2.0
+        above = (y1 - 1.5 * mh <= cy <= y2) and (
+            min(eb[2], x2) - max(eb[0], x1) > 0
+        )
+        left = eb[3] <= y2 + tol and eb[2] <= x1 + tol
+        if above or left:
+            return None
+    return caps[0]
 
 
 # ---------------------------------------------------------------------------

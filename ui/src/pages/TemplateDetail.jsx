@@ -16,8 +16,37 @@ function formatDate(iso) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Colours: a distinct hue per element so a box on the image can be   */
+/*  tied back to its card in the results. Each category draws from its */
+/*  own palette, so it is also obvious what kind of element it is.     */
+/* ------------------------------------------------------------------ */
+
+const FIELDS_PALETTE = [
+  "#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", "#0891b2",
+  "#db2777", "#4f46e5", "#ca8a04", "#059669", "#e11d48", "#1d4ed8",
+  "#7c3aed", "#0d9488", "#b91c1c", "#0369a1",
+];
+const GROUP_PALETTE = [
+  "#7c3aed", "#a855f7", "#c026d3", "#6d28d9", "#9333ea", "#d946ef",
+];
+const TABLE_PALETTE = [
+  "#d97706", "#ea580c", "#b45309", "#f59e0b", "#c2410c",
+];
+
+const CHECKED_COLOR = "#16a34a";
+const UNCHECKED_COLOR = "#9ca3af";
+
+const pick = (palette, i) => palette[i % palette.length];
+
+function hexAlpha(a) {
+  return Math.round(a * 255)
+    .toString(16)
+    .padStart(2, "0");
+}
+
+/* ------------------------------------------------------------------ */
 /*  Overlay box — positioned via px offsets relative to the actual     */
-/*  rendered image box (measured with getBoundingClientRect), so it     */
+/*  rendered image box (measured with getBoundingClientRect), so it    */
 /*  aligns no matter how the image is scaled/capped.                   */
 /* ------------------------------------------------------------------ */
 
@@ -25,9 +54,10 @@ function OverlayBox({
   bbox,
   color = "#3b82f6",
   fill = "0.12",
-  label,
   z = 10,
   frame,
+  dim = false,
+  strong = false,
 }) {
   if (!bbox || bbox.length !== 4 || !frame) return null;
   const [x1, y1, x2, y2] = bbox;
@@ -44,36 +74,19 @@ function OverlayBox({
       className="absolute rounded-sm pointer-events-none transition-opacity duration-100"
       style={{
         ...style,
-        border: `2px solid ${color}`,
-        backgroundColor: color + hexAlpha(fill),
-        zIndex: z,
+        border: `${strong ? 3 : 2}px solid ${color}`,
+        backgroundColor:
+          color + hexAlpha(strong ? Math.min(Number(fill) + 0.12, 0.5) : fill),
+        zIndex: dim ? 1 : strong ? z + 5 : z,
+        opacity: dim ? 0.35 : 1,
       }}
-    >
-      {label && (
-        <span
-          className="absolute -top-5 left-0 text-[10px] font-semibold text-white px-1 py-0.5 rounded shadow-md whitespace-nowrap"
-          style={{ backgroundColor: color, zIndex: z + 1 }}
-        >
-          {label}
-        </span>
-      )}
-    </div>
+    />
   );
 }
 
-function hexAlpha(a) {
-  return Math.round(a * 255)
-    .toString(16)
-    .padStart(2, "0");
-}
-
 /* ------------------------------------------------------------------ */
-/*  Field card — highlights on hover                                   */
+/*  Field cards — coloured edge matches the overlay on the image       */
 /* ------------------------------------------------------------------ */
-
-const CHECKED_COLOR = "#22c55e";
-const UNCHECKED_COLOR = "#94a3b8";
-const GROUP_COLOR = "#8b5cf6";
 
 function isCheckboxGroup(field) {
   return (
@@ -81,16 +94,28 @@ function isCheckboxGroup(field) {
   );
 }
 
-function OptionPill({ option, showState }) {
+function Swatch({ color }) {
+  return (
+    <span
+      className="inline-block w-2 h-2 rounded-full ring-1 ring-black/10 shrink-0"
+      style={{ backgroundColor: color }}
+    />
+  );
+}
+
+function OptionPill({ option, showState, color, onHover, onLeave }) {
   const checked = showState && option.checked === true;
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium ${
+      className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors duration-75 ${
         checked
           ? "bg-green-100 text-green-800 ring-1 ring-green-300"
           : "bg-gray-100 text-gray-600"
-      }`}
+      } ${onHover ? "cursor-pointer" : ""}`}
+      onMouseEnter={onHover ? () => onHover() : undefined}
+      onMouseLeave={onLeave ? () => onLeave() : undefined}
     >
+      {color && <Swatch color={color} />}
       {showState && (
         <input
           type="checkbox"
@@ -108,34 +133,26 @@ function OptionPill({ option, showState }) {
 
 /* Checkbox-group field: a set of option checkboxes whose extracted value is
    the list of checked option texts (single- or multi-select). */
-function CheckboxGroupCard({ field, onHover, onLeave }) {
+function CheckboxGroupCard({ field, color, hoverKey, onHover, onLeave }) {
   const options = field.options || [];
   const checkedOptions = options.filter((o) => o.checked === true);
-  const boxes = [];
-  if (field.bbox && field.bbox.length === 4) {
-    boxes.push({ bbox: field.bbox, color: GROUP_COLOR });
-  }
-  for (const o of options) {
-    if (o.bbox && o.bbox.length === 4) {
-      boxes.push({
-        bbox: o.bbox,
-        color: o.checked === true ? CHECKED_COLOR : UNCHECKED_COLOR,
-      });
-    }
-  }
   return (
     <div
       className="bg-gray-50 rounded p-2 text-sm border border-gray-100 cursor-pointer hover:border-purple-400 hover:shadow-sm transition-all duration-100"
+      style={{ borderLeft: `4px solid ${color}` }}
       onMouseEnter={() =>
-        boxes.length && onHover?.({ label: field.label, boxes })
+        options.length && onHover?.(hoverKey, field.label)
       }
       onMouseLeave={() => onLeave?.()}
     >
       <div className="flex items-start justify-between gap-2 mb-1.5">
-        <span className="block text-gray-500 text-xs break-words">
-          {field.label || (
-            <span className="italic text-gray-400">unlabelled</span>
-          )}
+        <span className="flex items-center gap-1.5 text-gray-500 text-xs break-words">
+          <Swatch color={color} />
+          <span>
+            {field.label || (
+              <span className="italic text-gray-400">unlabelled</span>
+            )}
+          </span>
         </span>
         <div className="flex items-center gap-1 shrink-0">
           <span className="text-[9px] uppercase tracking-wide bg-purple-100 text-purple-700 px-1 py-0.5 rounded">
@@ -148,7 +165,16 @@ function CheckboxGroupCard({ field, onHover, onLeave }) {
       </div>
       <div className="flex flex-wrap gap-1.5">
         {options.map((option, idx) => (
-          <OptionPill key={idx} option={option} showState />
+          <OptionPill
+            key={idx}
+            option={option}
+            showState
+            color={option.checked === true ? CHECKED_COLOR : UNCHECKED_COLOR}
+            onHover={() =>
+              onHover?.(`${hoverKey}-o${idx}`, `${field.label}: ${option.text}`)
+            }
+            onLeave={() => onLeave?.()}
+          />
         ))}
         {options.length === 0 && (
           <span className="text-xs text-gray-400 italic">No options</span>
@@ -166,10 +192,16 @@ function CheckboxGroupCard({ field, onHover, onLeave }) {
   );
 }
 
-function FieldCard({ field, onHover, onLeave }) {
+function FieldCard({ field, color, hoverKey, onHover, onLeave }) {
   if (isCheckboxGroup(field)) {
     return (
-      <CheckboxGroupCard field={field} onHover={onHover} onLeave={onLeave} />
+      <CheckboxGroupCard
+        field={field}
+        color={color}
+        hoverKey={hoverKey}
+        onHover={onHover}
+        onLeave={onLeave}
+      />
     );
   }
   const hasBbox = field.bbox && field.bbox.length === 4;
@@ -180,17 +212,15 @@ function FieldCard({ field, onHover, onLeave }) {
           ? "cursor-pointer hover:border-blue-400 hover:shadow-sm"
           : "border-gray-100"
       }`}
+      style={{ borderLeft: `4px solid ${hasBbox ? color : "#e5e7eb"}` }}
       onMouseEnter={() =>
-        hasBbox &&
-        onHover?.({
-          label: field.label,
-          boxes: [{ bbox: field.bbox, color: "#22c55e" }],
-        })
+        hasBbox && onHover?.(hoverKey, field.label)
       }
       onMouseLeave={() => onLeave?.()}
     >
-      <span className="block text-gray-500 text-xs mb-1 break-words">
-        {field.label}
+      <span className="flex items-center gap-1.5 text-gray-500 text-xs mb-1 break-words">
+        {hasBbox && <Swatch color={color} />}
+        <span>{field.label}</span>
       </span>
       <div className="flex items-center gap-2">
         <span className="font-medium break-words text-gray-900">
@@ -220,7 +250,7 @@ function FieldCard({ field, onHover, onLeave }) {
 /*  Table view — cells highlight on hover                              */
 /* ------------------------------------------------------------------ */
 
-function TableView({ table, onHover, onLeave }) {
+function TableView({ table, color, tableKey, onHover, onLeave }) {
   if (!table.cells || table.cells.length === 0) {
     return <p className="text-sm text-gray-400 italic">No cells.</p>;
   }
@@ -254,14 +284,16 @@ function TableView({ table, onHover, onLeave }) {
                   <td
                     key={cIdx}
                     className={`pl-2 pr-1 py-1 align-top transition-colors duration-75 ${
-                      hasBbox ? "cursor-pointer hover:bg-blue-50" : ""
+                      hasBbox ? "cursor-pointer hover:bg-amber-50" : ""
                     } ${cell ? "" : "bg-gray-50"}`}
                     onMouseEnter={() =>
                       hasBbox &&
-                      onHover?.({
-                        label: `r${cell.row}c${cell.column}${cell.text ? `: ${cell.text}` : ""}`,
-                        boxes: [{ bbox: cell.bbox, color: "#3b82f6" }],
-                      })
+                      onHover?.(
+                        `${tableKey}-c${cell.row}-${cell.column}`,
+                        `${table.id || "Table"} r${cell.row}c${cell.column}: ${
+                          cell.text || "—"
+                        }`,
+                      )
                     }
                     onMouseLeave={() => onLeave?.()}
                   >
@@ -292,6 +324,102 @@ function TableView({ table, onHover, onLeave }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Overlay builder — one coloured box per element                     */
+/* ------------------------------------------------------------------ */
+
+const keyType = (key) => key[0]; // 'f' | 'g' | 't'
+
+// Smallest box covering all the given normalized bboxes.
+function unionBbox(...boxes) {
+  const valid = boxes.filter((b) => b && b.length === 4);
+  if (valid.length === 0) return null;
+  return [
+    Math.min(...valid.map((b) => b[0])),
+    Math.min(...valid.map((b) => b[1])),
+    Math.max(...valid.map((b) => b[2])),
+    Math.max(...valid.map((b) => b[3])),
+  ];
+}
+
+// A field's box must cover BOTH its name (label region) and its value, so
+// the overlay makes the whole field visible without any text on the image.
+function buildOverlays(fields, tables, templateFields) {
+  const items = [];
+  (fields || []).forEach((field, i) => {
+    const tfield = templateFields?.[i];
+    if (isCheckboxGroup(field)) {
+      const color = pick(GROUP_PALETTE, i);
+      const key = `g${i}`;
+      const options = field.options || [];
+      const groupBox = unionBbox(field.bbox, tfield?.label_bbox);
+      if (groupBox) {
+        items.push({
+          key,
+          bbox: groupBox,
+          color,
+          fill: "0.08",
+          z: 5,
+        });
+      }
+      options.forEach((o, oi) => {
+        if (o.bbox && o.bbox.length === 4) {
+          items.push({
+            key: `${key}-o${oi}`,
+            bbox: o.bbox,
+            color: o.checked === true ? CHECKED_COLOR : UNCHECKED_COLOR,
+            fill: o.checked === true ? "0.28" : "0.05",
+            z: 6,
+          });
+        }
+      });
+    } else {
+      const color = pick(FIELDS_PALETTE, i);
+      const fieldBox = unionBbox(field.bbox, tfield?.label_bbox);
+      if (fieldBox) {
+        items.push({
+          key: `f${i}`,
+          bbox: fieldBox,
+          color,
+          fill: "0.12",
+          z: 5,
+        });
+      }
+    }
+  });
+
+  (tables || []).forEach((table, i) => {
+    const color = pick(TABLE_PALETTE, i);
+    const key = `t${i}`;
+    if (table.bbox && table.bbox.length === 4) {
+      items.push({
+        key,
+        bbox: table.bbox,
+        color,
+        fill: "0.04",
+        z: 3,
+      });
+    }
+    (table.cells || []).forEach((cell) => {
+      if (cell.bbox && cell.bbox.length === 4) {
+        items.push({
+          key: `${key}-c${cell.row}-${cell.column}`,
+          bbox: cell.bbox,
+          color,
+          fill: "0.10",
+          z: 4,
+        });
+      }
+    });
+  });
+
+  return items;
+}
+
+const isRelated = (activeKey, itemKey) =>
+  activeKey != null &&
+  (itemKey === activeKey || itemKey.startsWith(activeKey + "-"));
+
+/* ------------------------------------------------------------------ */
 /*  Main page                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -301,28 +429,35 @@ export default function TemplateDetail() {
   const [error, setError] = useState(null);
   const [loadingExtract, setLoadingExtract] = useState(false);
   const [result, setResult] = useState(null);
-  const [hovered, setHovered] = useState(null);
   const [frame, setFrame] = useState(null);
+  const [frameTick, setFrameTick] = useState(0);
+  const [active, setActive] = useState(null);
+  const [toShow, setToShow] = useState({ fields: true, groups: true, tables: true });
   const fileRef = useRef(null);
   const imgBoxRef = useRef(null);
   const wrapBoxRef = useRef(null);
 
   // Measure the actually-rendered image box (offset + size within its
-  // wrapper) whenever a new result arrives or the pointer lands on a field.
+  // wrapper) whenever a new result arrives or the image (re)loads.
   useLayoutEffect(() => {
-    const im = imgBoxRef.current;
-    const wr = wrapBoxRef.current;
-    if (!im || !wr) return;
-    const ir = im.getBoundingClientRect();
-    const w = wr.getBoundingClientRect();
-    if (!ir.width || !ir.height) return;
-    setFrame({
-      ox: ir.left - w.left,
-      oy: ir.top - w.top,
-      w: ir.width,
-      h: ir.height,
-    });
-  }, [result, hovered]);
+    const measure = () => {
+      const im = imgBoxRef.current;
+      const wr = wrapBoxRef.current;
+      if (!im || !wr) return;
+      const ir = im.getBoundingClientRect();
+      const w = wr.getBoundingClientRect();
+      if (!ir.width || !ir.height) return;
+      setFrame({
+        ox: ir.left - w.left,
+        oy: ir.top - w.top,
+        w: ir.width,
+        h: ir.height,
+      });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [result, frameTick, active]);
 
   useEffect(() => {
     let cancelled = false;
@@ -380,6 +515,9 @@ export default function TemplateDetail() {
     }
   };
 
+  const onHover = (key, label) => setActive({ key, label });
+  const onLeave = () => setActive(null);
+
   if (template === null && !error) {
     return (
       <div className="max-w-7xl mx-auto p-6">
@@ -406,8 +544,17 @@ export default function TemplateDetail() {
     );
   }
 
-  const fields = result?.fields || null;
-  const tables = result?.tables || null;
+  const fields = result?.fields || [];
+  const tables = result?.tables || [];
+  const overlayItems = result
+    ? buildOverlays(fields, tables, template?.fields)
+    : [];
+  const visibleItems = overlayItems.filter(
+    (it) =>
+      (toShow.fields && keyType(it.key) === "f") ||
+      (toShow.groups && keyType(it.key) === "g") ||
+      (toShow.tables && keyType(it.key) === "t"),
+  );
 
   return (
     <div className="max-w-7xl mx-auto p-6">
@@ -432,14 +579,78 @@ export default function TemplateDetail() {
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Sticky preview: aligned filled form (hover overlay) + blank template */}
+        {/* Sticky preview: always-on colour-coded overlay + blank template */}
         <div>
           <div className="lg:sticky lg:top-6 flex flex-col gap-4">
             {result?.warped_image_data_url && (
               <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">
-                  Aligned Filled Form
-                </h3>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
+                    Extraction Overlay
+                  </h3>
+                </div>
+
+                {/* Layer toggles */}
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  <button
+                    onClick={() =>
+                      setToShow((s) => ({ ...s, fields: !s.fields }))
+                    }
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-semibold border transition-colors duration-100 ${
+                      toShow.fields
+                        ? "border-blue-600 text-blue-700 bg-blue-50"
+                        : "border-gray-200 text-gray-400 bg-white"
+                    }`}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: FIELDS_PALETTE[0] }}
+                    />
+                    Fields
+                    <span className="text-[9px] text-gray-400">
+                      {fields.filter((f) => !isCheckboxGroup(f)).length}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() =>
+                      setToShow((s) => ({ ...s, groups: !s.groups }))
+                    }
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-semibold border transition-colors duration-100 ${
+                      toShow.groups
+                        ? "border-purple-600 text-purple-700 bg-purple-50"
+                        : "border-gray-200 text-gray-400 bg-white"
+                    }`}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: GROUP_PALETTE[0] }}
+                    />
+                    Checkboxes
+                    <span className="text-[9px] text-gray-400">
+                      {fields.filter((f) => isCheckboxGroup(f)).length}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() =>
+                      setToShow((s) => ({ ...s, tables: !s.tables }))
+                    }
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-semibold border transition-colors duration-100 ${
+                      toShow.tables
+                        ? "border-amber-600 text-amber-700 bg-amber-50"
+                        : "border-gray-200 text-gray-400 bg-white"
+                    }`}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: TABLE_PALETTE[0] }}
+                    />
+                    Tables
+                    <span className="text-[9px] text-gray-400">
+                      {tables.length}
+                    </span>
+                  </button>
+                </div>
+
                 <div className="rounded border border-gray-100 overflow-hidden bg-gray-50 text-center">
                   <div
                     ref={wrapBoxRef}
@@ -449,29 +660,80 @@ export default function TemplateDetail() {
                       ref={imgBoxRef}
                       src={result.warped_image_data_url}
                       alt="Aligned filled form"
+                      onLoad={() => setFrameTick((t) => t + 1)}
                       className="max-h-[60vh] w-auto block"
                     />
-                    {/* Bbox overlay layer — shown when hovering fields / cells */}
-                    {hovered && hovered.boxes && frame && (
+                    {frame && (
                       <div className="absolute inset-0 pointer-events-none">
-                        {hovered.boxes.map((box, idx) => (
+                        {visibleItems.map((box) => (
                           <OverlayBox
-                            key={idx}
+                            key={box.key}
                             bbox={box.bbox}
                             color={box.color}
-                            fill={0.15}
-                            label={idx === 0 ? hovered.label : null}
+                            fill={box.fill}
+                            label={box.label}
+                            z={box.z}
                             frame={frame}
+                            dim={active ? !isRelated(active.key, box.key) : false}
+                            strong={active ? isRelated(active.key, box.key) : false}
                           />
                         ))}
                       </div>
                     )}
                   </div>
                 </div>
-                <p className="text-[10px] text-gray-400 mt-2 italic">
-                  Hover over fields or table cells in the results to highlight
-                  their location.
-                </p>
+
+                <div className="mt-2 text-[11px] text-gray-500 h-4 truncate">
+                  {active ? (
+                    <>
+                      Focus:{" "}
+                      <span className="font-semibold text-gray-700">
+                        {active.label}
+                      </span>
+                    </>
+                  ) : (
+                    "Hover a result card to focus its boxes on the form."
+                  )}
+                </div>
+
+                {/* Legend */}
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-gray-500">
+                  <span className="inline-flex items-center gap-1">
+                    <span
+                      className="w-2.5 h-2.5 rounded-sm inline-block"
+                      style={{ backgroundColor: FIELDS_PALETTE[0] }}
+                    />
+                    Field value
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span
+                      className="w-2.5 h-2.5 rounded-sm inline-block"
+                      style={{ backgroundColor: GROUP_PALETTE[0] }}
+                    />
+                    Checkbox group
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span
+                      className="w-2.5 h-2.5 rounded-sm inline-block"
+                      style={{ backgroundColor: CHECKED_COLOR }}
+                    />
+                    Checked option
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span
+                      className="w-2.5 h-2.5 rounded-sm inline-block"
+                      style={{ backgroundColor: UNCHECKED_COLOR }}
+                    />
+                    Unchecked
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span
+                      className="w-2.5 h-2.5 rounded-sm inline-block"
+                      style={{ backgroundColor: TABLE_PALETTE[0] }}
+                    />
+                    Table (+ cells)
+                  </span>
+                </div>
               </div>
             )}
 
@@ -531,7 +793,6 @@ export default function TemplateDetail() {
               />
               <button
                 onClick={handleExtract}
-                // disabled={!fileRef.current?.files?.length || loadingExtract}
                 className={`flex items-center justify-center px-6 py-2.5 rounded-md font-semibold text-white transition-all whitespace-nowrap ${
                   !fileRef.current?.files?.length || loadingExtract
                     ? "bg-blue-300 cursor-not-allowed"
@@ -565,7 +826,7 @@ export default function TemplateDetail() {
               )}
 
               {/* ---- Key / Values ---- */}
-              {fields && fields.length > 0 && (
+              {fields.length > 0 && (
                 <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
@@ -580,8 +841,16 @@ export default function TemplateDetail() {
                       <FieldCard
                         key={idx}
                         field={field}
-                        onHover={setHovered}
-                        onLeave={() => setHovered(null)}
+                        color={
+                          isCheckboxGroup(field)
+                            ? pick(GROUP_PALETTE, idx)
+                            : pick(FIELDS_PALETTE, idx)
+                        }
+                        hoverKey={
+                          isCheckboxGroup(field) ? `g${idx}` : `f${idx}`
+                        }
+                        onHover={onHover}
+                        onLeave={onLeave}
                       />
                     ))}
                   </div>
@@ -589,21 +858,30 @@ export default function TemplateDetail() {
               )}
 
               {/* ---- Tables ---- */}
-              {tables && tables.length > 0 && (
+              {tables.length > 0 && (
                 <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col gap-4">
                   <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
                     Tables
                   </h3>
                   {tables.map((table, idx) => (
-                    <div key={idx} className="flex flex-col gap-1">
+                    <div
+                      key={idx}
+                      className="flex flex-col gap-1"
+                      onMouseEnter={() =>
+                        onHover(`t${idx}`, `${table.id || "Table"} ‖ ${table.n_rows}×${table.n_cols}`)
+                      }
+                      onMouseLeave={onLeave}
+                    >
                       <div className="text-xs text-gray-500">
                         {table.id} · {table.n_rows}×{table.n_cols} ·{" "}
                         {table.structure_source || "unknown"} structure
                       </div>
                       <TableView
                         table={table}
-                        onHover={setHovered}
-                        onLeave={() => setHovered(null)}
+                        color={pick(TABLE_PALETTE, idx)}
+                        tableKey={`t${idx}`}
+                        onHover={onHover}
+                        onLeave={onLeave}
                       />
                     </div>
                   ))}

@@ -526,7 +526,15 @@ def build_template_fields(doc_rep, image_width, image_height):
         rb = region.get("bbox")
         if not rb or len(rb) != 4:
             continue
-        label_info = _label_for_region(region, elements, median_text_h)
+        # Caption-under-rule fields ("______ / address") carry their label
+        # with them: the detector already proved a SMALL caption sits directly
+        # beneath the value rule, so it is authoritative, not a guess.
+        cap_label = region.get("label")
+        if cap_label:
+            cap_bbox = region.get("label_bbox") or rb
+            label_info = {"text": str(cap_label).strip(), "bbox": list(cap_bbox)}
+        else:
+            label_info = _label_for_region(region, elements, median_text_h)
         if label_info:
             label = label_info["text"]
             # Grid-cell labels were validated inside the cell by the detector
@@ -538,7 +546,7 @@ def build_template_fields(doc_rep, image_width, image_height):
                     continue  # the checkbox group already owns this label
                 entries.append((region, label_info))
                 continue
-            if _label_is_field_label(label):
+            if _label_is_field_label(label) or cap_label:
                 entries.append((region, label_info))
                 continue
             # A label was found but rejected by the heuristic (e.g. a long
