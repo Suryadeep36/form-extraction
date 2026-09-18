@@ -763,13 +763,21 @@ def _dedup_underline_segments(segments, y_tol=6, gap_tol=4.0, elements=None):
 # or a full-width line that the underline pass drops as a page rule, so it is
 # invisible to the normal input-region detection and produces no field at all.
 
-def _caption_candidates_below(bbox, elements, median_text_h):
+def _caption_candidates_below(bbox, elements, median_text_h, ink=None):
     """OCR elements directly beneath `bbox` that read as a field caption.
 
     A caption is text printed BELOW the value rule: its top sits just under
     the rule's bottom edge (within a small gap) and its body is SMALLER than
     the page's median text height ("relatively smaller than everything
     else").  It must also overlap the rule's x-range and carry a real word.
+
+    `ink` (optional): mapping {id(element): (ink_top, ink_height)} giving the
+    TRUE ink extent of each element measured from the image.  The light dashed
+    writing rules of a sky-blue template bleed into the OCR quads above the
+    text, inflating the reported box (a 17px "Age" caption arrives as a 33px
+    quad whose top rides ON the rule).  When provided, that inflated box
+    height is replaced by the real inked height and the box's top may sit on
+    - or a little above - the rule.
 
     Returns the matching elements as
     [{"text", "bbox", "height"}, ...] sorted left to right.
@@ -783,15 +791,22 @@ def _caption_candidates_below(bbox, elements, median_text_h):
         eb = el.get("bbox")
         if not eb or len(eb) != 4:
             continue
-        h = eb[3] - eb[1]
-        if not (0.5 <= h <= small_max):
-            continue
         text = (el.get("text") or "").strip()
         if len(text) < 2:
             continue
         if not re.search(r"[A-Za-z0-9\u00C0-\u024F]", text):
             continue
-        if not (lo <= eb[1] <= hi):
+        if ink is not None and id(el) in ink and ink[id(el)]:
+            ink_top, h = ink[id(el)]
+            if ink_top > hi or ink_top < bbox[3] - mh:
+                continue
+        else:
+            h = eb[3] - eb[1]
+            if not (0.5 <= h <= small_max):
+                continue
+            if not (lo <= eb[1] <= hi):
+                continue
+        if not (0.5 <= h <= small_max):
             continue
         xov = min(eb[2], bbox[2]) - max(eb[0], bbox[0])
         if xov <= 0 or xov < (eb[2] - eb[0]) * 0.3:
@@ -799,6 +814,110 @@ def _caption_candidates_below(bbox, elements, median_text_h):
         caps.append({"text": text, "bbox": eb, "height": h})
     caps.sort(key=lambda c: c["bbox"][0])
     return caps
+
+
+def _caption_ink_height(gray, eb, line_y, mh, thr=205):
+    """True inked height of a caption printed beneath a writing rule.
+
+    Scans the grayscale image inside the element's OWN vertical extent and
+    reports the tallest contiguous run of inked rows (tiny gaps of 1-3px are
+    tolerated for descenders/ascenders).  Starting at `line_y + 1` excludes
+    the rule itself, which bleeds into the top of the OCR quad of a caption
+    printed just beneath it.
+
+    Bounding the scan by the element's own box top is what keeps distant
+    elements from inheriting a near neighbour's ink: an element far below the
+    line has no overlap between its own rows and the capped window, so it
+    returns None and falls back to the (rejecting) OCR-path height test.
+
+    Returns (ink_top, ink_height) or None when no ink is found.
+    """
+    h, w = gray.shape
+    x1 = max(0, int(eb[0]))
+    x2 = min(w - 1, int(eb[2]))
+    lo = min(h - 1, int(max(eb[1], line_y) + 1))
+    hi = min(h - 1, int(min(eb[3], line_y + 2 * mh)))
+    if x2 <= x1 or hi <= lo:
+        return None
+    rows = []
+    for y in range(lo, hi + 1):
+        cnt = int(np.count_nonzero(gray[y, x1:x2 + 1] <= thr))
+        if cnt >= 2:
+            rows.append(y)
+    if not rows:
+        return None
+    spans = []
+    s = rows[0]
+    p = rows[0]
+    for r in rows[1:]:
+        if r - p <= 3:
+            p = r
+            continue
+        spans.append((s, p))
+        s = p = r
+    spans.append((s, p))
+    best = max(spans, key=lambda sp: sp[1] - sp[0])
+    return best[0], best[1] - best[0] + 1
+
+
+def _scan_writing_rules(gray, thr=250, min_piece=8, bridge=12, min_len=80):
+    """Scan grayscale for printed horizontal writing rules.
+
+    The sky-blue template prints its field rules as very light, micro-dashed
+    lines (29px pieces on 1-2px gaps) that the morphological kernel of
+    `detect_line_segments` either eats or shatters into arbitrary chunks.  So
+    the rules are read directly from the pixel runs: dark runs are merged when
+    separated by a small gap (dashes of one printed rule) and a span becomes a
+    rule when it is long enough AND thin (printed text occupies many rows, a
+    writing rule only one or two).
+
+    Returns [{"y": float, "x1": float, "x2": float}, ...] with each printed
+    field's rule kept as its OWN span (no fusion across field gaps).
+    """
+    h, w = gray.shape
+    out = []
+    for y in range(h):
+        row = gray[y]
+        dark = np.where(row <= thr)[0]
+        if dark.size == 0:
+            continue
+        # runs of continuous dark pixels
+        runs = []
+        s = int(dark[0])
+        p = int(dark[0])
+        for i in dark[1:]:
+            if i - p > 1:
+                if p - s + 1 >= min_piece:
+                    runs.append((s, p))
+                s = int(i)
+            p = int(i)
+        if p - s + 1 >= min_piece:
+            runs.append((s, p))
+        if not runs:
+            continue
+        # merge nearby runs (dashes of one rule)
+        spans = []
+        cur = runs[0]
+        for a, b in runs[1:]:
+            if a - cur[1] <= bridge:
+                cur = (cur[0], b)
+            else:
+                spans.append(cur)
+                cur = (a, b)
+        spans.append(cur)
+        for x1, x2 in spans:
+            if x2 - x1 + 1 < min_len:
+                continue
+            # thinness: a writing rule is tall-in-height-unthick - only 1-3 of
+            # the neighbouring rows have ANY ink across the span, whereas text
+            # glyphs paint every row they cross.
+            thick = 0
+            for yy in range(max(0, y - 2), min(h, y + 3)):
+                if np.any(gray[yy, x1:x2 + 1] <= thr):
+                    thick += 1
+            if thick <= 3:
+                out.append({"y": float(y), "x1": float(x1), "x2": float(x2)})
+    return out
 
 
 def _detect_caption_fields(gray, elements, median_text_h):
@@ -829,35 +948,23 @@ def _detect_caption_fields(gray, elements, median_text_h):
     h, w = gray.shape
     mh = max(float(median_text_h or 0), 1.0)
 
-    segments = detect_line_segments(
+    # Faint / micro-dashed rules are the whole point here: the sky-blue
+    # template prints its writing rules as very light dashes (29px pieces on
+    # 1-2px gaps) that the morphological kernel of `detect_line_segments`
+    # either eats entirely or shatters into arbitrary 78px chunks.  So the
+    # rules are scanned directly from the pixel runs instead, which keeps each
+    # printed field's rule as ONE span (the four branch of service /
+    # disability rating / age / serial number rules arrive as four separate
+    # spans instead of being fused by the dashed re-merge).
+    rules = _scan_writing_rules(
         gray,
-        orientation="horizontal",
-        min_length_ratio=0.02,
-        max_thickness=30,
-        kernel_scale=0.02,
-        connect_gap_ratio=0.02,
+        thr=250,
+        min_piece=15,
+        bridge=10,
+        min_len=max(60.0, 2.0 * mh),
     )
-    if not segments:
+    if not rules:
         return []
-
-    # Merge colinear dashes into printed rows (one underline per row).  The
-    # gap tolerance is generous on purpose: the pass only actives when a small
-    # caption sits below, and rows without any caption are skipped outright.
-    rows = []
-    for seg in sorted(segments, key=lambda s: (s["y"], s["x1"])):
-        placed = False
-        for row in rows:
-            if abs(row["y"] - seg["y"]) > 4:
-                continue
-            if seg["x1"] <= row["x2"] + 3.0 * mh and row["x1"] <= seg["x2"] + 3.0 * mh:
-                row["x1"] = min(row["x1"], seg["x1"])
-                row["x2"] = max(row["x2"], seg["x2"])
-                row["y"] = (row["y"] + seg["y"]) / 2.0
-                row["segs"].append(seg)
-                placed = True
-                break
-        if not placed:
-            rows.append({"y": seg["y"], "x1": seg["x1"], "x2": seg["x2"], "segs": [seg]})
 
     # Closed rectangles ("boxes").  A caption that is merely the first text of
     # a printed box whose top edge is our "rule" (a header label like
@@ -917,59 +1024,85 @@ def _detect_caption_fields(gray, elements, median_text_h):
                 return True
         return False
 
-    min_row_len = max(120.0, 3.0 * mh)
     pad = max(8.0, 0.8 * mh)
     regions = []
 
-    for row in rows:
-        if row["x2"] - row["x1"] < min_row_len:
-            continue
+    # The tiny writing rules on the sky-blue template are printed as very
+    # light dashes that the OCR quads swallow, so the caption's reported box
+    # height is inflated (an "Age" glyph of ~17px arrives as a 33px quad whose
+    # top rides ON the rule).  The smallness test below therefore uses the
+    # TRUE inked height measured from the image instead of the OCR box height.
+    def ink_map_for(line_y):
+        imap = {}
+        for el in elements or []:
+            eb = el.get("bbox")
+            if not eb or len(eb) != 4:
+                continue
+            v = _caption_ink_height(gray, eb, line_y, mh)
+            imap[id(el)] = (v[0], v[1]) if v else None
+        return imap
+
+    # Group same printed row (within a few px).  Each writing rule keeps its
+    # true x-extent; the four branch-of-service / disability-rating / age /
+    # serial-number rules stay SEPARATE spans (the old scanner fused them into
+    # one row and handed a single caption the whole width).
+    line_ys = []
+    for r in sorted(rules, key=lambda s: s["y"]):
+        placed = False
+        for ly in line_ys:
+            if abs(ly - r["y"]) <= 4:
+                placed = True
+                break
+        if not placed:
+            line_ys.append(r["y"])
+    for ly in line_ys:
+        row_rules = [r for r in rules if abs(r["y"] - ly) <= 4]
+        row_rules.sort(key=lambda r: r["x1"])
+        row_x1, row_x2 = row_rules[0]["x1"], row_rules[-1]["x2"]
         caps = _caption_candidates_below(
-            [row["x1"], row["y"], row["x2"], row["y"]],
+            [row_x1, ly, row_x2, ly],
             elements,
             mh,
+            ink=ink_map_for(ly),
         )
         if not caps:
             continue
-        lb = row["y"]
+        if text_above(ly, row_x1, row_x2):
+            continue
         if len(caps) == 1:
+            # one caption -> one field over the whole writing line
             cap = caps[0]
-            if text_above(lb, row["x1"], row["x2"]):
-                continue
-            if box_header_line(lb, row["x1"], row["x2"], cap):
+            if box_header_line(ly, row_x1, row_x2, cap):
                 continue
             regions.append({
                 "kind": "underline",
-                "bbox": [row["x1"], lb - pad, row["x2"], lb + pad],
+                "bbox": [row_x1, ly - pad, row_x2, ly + pad],
                 "label": cap["text"],
                 "label_bbox": cap["bbox"],
                 "source": "caption",
-                "confidence": 0.8,
+                "confidence": 0.9,
             })
             continue
-        m = 0.5 * mh
+        # many captions -> each claims the rule(s) overlapping its x-range
         for cap in caps:
-            if text_above(lb, row["x1"], row["x2"]):
-                continue
             hit = [
-                s for s in row["segs"]
-                if (s["x1"] + s["x2"]) / 2.0 >= cap["bbox"][0] - m
-                and (s["x1"] + s["x2"]) / 2.0 <= cap["bbox"][2] + m
+                r for r in row_rules
+                if min(r["x2"], cap["bbox"][2]) - max(r["x1"], cap["bbox"][0]) > 0
             ]
             if hit:
-                sx1 = min(s["x1"] for s in hit)
-                sx2 = max(s["x2"] for s in hit)
+                bx1 = min(r["x1"] for r in hit)
+                bx2 = max(r["x2"] for r in hit)
             else:
-                sx1, sx2 = cap["bbox"][0], cap["bbox"][2]
-            if box_header_line(lb, sx1, sx2, cap):
+                bx1, bx2 = cap["bbox"][0], cap["bbox"][2]
+            if box_header_line(ly, bx1, bx2, cap):
                 continue
             regions.append({
                 "kind": "underline",
-                "bbox": [sx1, lb - pad, sx2, lb + pad],
+                "bbox": [bx1, ly - pad, bx2, ly + pad],
                 "label": cap["text"],
                 "label_bbox": cap["bbox"],
                 "source": "caption",
-                "confidence": 0.8,
+                "confidence": 0.9,
             })
 
     return regions

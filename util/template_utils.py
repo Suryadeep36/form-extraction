@@ -473,6 +473,51 @@ def _iou(a, b):
     return inter / (area_a + area_b - inter)
 
 
+def _region_contains_foreign_text(boxes, label_bbox, elements):
+    """True when printed OCR text sits substantially INSIDE one of the field's
+    value boxes and is NOT the field's own label.
+
+    Templates are registered from EMPTY forms, so a real input region is a
+    blank writing area; any text found inside it that is not its printed label
+    means it is decorative (a header rule under "Property Tax" / "Form 50-135",
+    a box border, a section divider) and must not be registered as a field.
+
+    Care is taken for value boxes that are large enough to contain the field's
+    own label (a caption printed beneath its writing line, an inside-box
+    prompt like "Zip Code", a grid cell whose top strip carries its name):
+    those elements overlap the field's `label_bbox` and are excluded.  A text
+    only counts as "inside" when at least half of ITS body is within a box, so
+    a neighbouring row's label that merely clips a wide box's edge cannot
+    trigger a rejection.
+
+    Returns True when at least one such foreign text exists.
+    """
+    for el in elements or []:
+        eb = el.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        text = (el.get("text") or "").strip()
+        if len(text) < 2 or not re.search(r"[A-Za-z0-9\u00C0-\u024F]", text):
+            continue
+        # The field's own label printed inside its value box is expected.
+        if label_bbox and _iou(eb, label_bbox) > 0.0:
+            continue
+        ew = eb[2] - eb[0]
+        eh = eb[3] - eb[1]
+        if ew <= 0 or eh <= 0:
+            continue
+        elem_area = ew * eh
+        for b in boxes:
+            ix1, iy1 = max(eb[0], b[0]), max(eb[1], b[1])
+            ix2, iy2 = min(eb[2], b[2]), min(eb[3], b[3])
+            if ix2 <= ix1 or iy2 <= iy1:
+                continue
+            inter = (ix2 - ix1) * (iy2 - iy1)
+            if inter >= 0.5 * elem_area:
+                return True
+    return False
+
+
 def build_template_fields(doc_rep, image_width, image_height):
     """
     Convert a document representation (from an EMPTY form) into template
@@ -660,6 +705,18 @@ def build_template_fields(doc_rep, image_width, image_height):
                     pad_down = min(pad_down, max(0.0, min(below) - b[3]))
                 b[1] -= pad_up
                 b[3] += pad_down
+
+        # Empty-form guard: a real input region on a blank form contains no
+        # printed text other than its own label.  A rule that merely carries
+        # printed header content (the "Property Tax" / "Form 50-135" header
+        # borders on Form 50-135) is decorative, not a field, and is dropped
+        # here.  Structured regions whose value legitimately holds printed
+        # content (checkbox groups' option labels, grid cells' interior label
+        # strip) stay out of this check.
+        if kind in ("underline", "box", "blank") and _region_contains_foreign_text(
+            boxes, label_info["bbox"], elements
+        ):
+            continue
 
         norm_bbox = [
             min(b[0] for b in boxes) / image_width,
