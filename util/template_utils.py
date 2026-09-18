@@ -125,7 +125,7 @@ def _is_label_row_member(el, elements, median_text_h):
         cy = (eb[1] + eb[3]) / 2.0
     band = max(8.0, 0.6 * median_text_h)
     for other in elements:
-        if other is el or other.get("is_value"):
+        if other is el:
             continue
         if len((other.get("text") or "").strip()) < 2:
             continue
@@ -333,7 +333,7 @@ def _label_for_region(region, elements, median_text_h, exclude_texts=None):
             continue
         if is_val:
             bh = eb[3] - eb[1]
-            if bh > 1.2 * mh or not (y1 - mh <= eb[3] <= y1 + mh):
+            if bh > 1.5 * mh or not (y1 - 1.15 * mh <= eb[3] <= y1 + 1.15 * mh):
                 continue
         text = (el.get("text") or "").strip()
         if len(text) < 2:
@@ -401,7 +401,10 @@ def _label_for_region(region, elements, median_text_h, exclude_texts=None):
             continue
 
         # 3. Same-row label sitting to the left.
-        if cy >= y1 - 1.5 * mh and eb[3] <= y1 + mh and eb[2] <= x1 + tol:
+        # A fraction of extra tolerance (1.15x, a few px) lets an OCR box that
+        # pokes a hair past the region's line window ("City" under a slightly
+        # taller writing box) still be the row's label.
+        if cy >= y1 - 1.5 * mh and eb[3] <= y1 + 1.15 * mh and eb[2] <= x1 + tol:
             if eb[0] < x2:
                 dx, dy = _region_gap(rb, eb)
                 d = math.hypot(dx, dy)
@@ -473,7 +476,151 @@ def _iou(a, b):
     return inter / (area_a + area_b - inter)
 
 
-def _region_contains_foreign_text(boxes, label_bbox, elements):
+def _inter_ratio(a, b):
+    """Fraction of box b's area that lies inside box a."""
+    x1 = max(a[0], b[0]); y1 = max(a[1], b[1])
+    x2 = min(a[2], b[2]); y2 = min(a[3], b[3])
+    if x2 <= x1 or y2 <= y1:
+        return 0.0
+    inter = (x2 - x1) * (y2 - y1)
+    area_b = (b[2] - b[0]) * (b[3] - b[1])
+    return inter / max(area_b, 1.0)
+
+
+def _union_bbox(boxes):
+    boxes = [b for b in boxes if b and len(b) == 4]
+    if not boxes:
+        return None
+    return [
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    ]
+
+
+def _region_is_real_field(region, elements, median_text_h):
+    """True when a region would stand as an independent template field: it
+    carries an authoritative caption label proven by the detector, or an OCR
+    label that passes the field-label rules."""
+    if region.get("label"):
+        return True
+    ri = _label_for_region(region, elements, median_text_h)
+    if not ri:
+        return False
+    text = (ri.get("text") or "").strip()
+    if not text:
+        return False
+    return _label_is_field_label(text)
+
+
+def _grid_cell_is_container(region, input_regions, elements, median_text_h):
+    """
+    True when a grid cell merely wraps other real input regions: another
+    underline/box/grid-cell region whose body sits largely (>= 40%) inside the
+    cell AND that region carries its own authoritative label. The cell is a
+    decorative container (a row box around "Salesperson's Name: ______" or a
+    parenthetical instruction strip), not a field. Dropping it lets the inner
+    regions stand alone instead of being swallowed as the cell's value.
+    """
+    rb = region.get("bbox")
+    if not rb or len(rb) != 4:
+        return False
+    for r in input_regions or []:
+        if r is region:
+            continue
+        if (r.get("kind") or "blank") not in ("underline", "box", "grid_cell"):
+            continue
+        ob = r.get("bbox")
+        if not ob or len(ob) != 4:
+            continue
+        if _inter_ratio(rb, ob) >= 0.4 and _region_is_real_field(
+            r, elements, median_text_h
+        ):
+            return True
+    return False
+
+
+def _left_field_label(rb, elements, median_text_h, exclude_text):
+    """
+    For a caption-under-rule field whose own (authoritative) label is a small
+    parenthetical instruction ("(Include month, day, and year)"), recover the
+    real field label printed on the SAME line to its left ("Date of Hire:").
+    Returns {"text", "bbox"} of the nearest such label or None.
+    """
+    x1, y1, _, y2 = rb
+    mh = max(float(median_text_h or 0), 1.0)
+    lo, hi = y1 - mh, y2 + mh
+    line_cy = (y1 + y2) / 2.0
+    tol = mh
+    best = None
+    best_d = None
+    best_x = None
+    for el in elements or []:
+        if el.get("is_value"):
+            continue
+        eb = el.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        t = (el.get("text") or "").strip()
+        if not t or len(t) < 2:
+            continue
+        if t == (exclude_text or "").strip():
+            continue
+        if not (x1 - 4 * mh <= eb[2] <= x1 + tol):
+            continue
+        cy = el.get("center", [None, None])[1]
+        if cy is None:
+            cy = (eb[1] + eb[3]) / 2.0
+        if not (lo <= cy <= hi):
+            continue
+        if not (_label_is_field_label(t) or t.rstrip().endswith(":")):
+            continue
+        d = abs(cy - line_cy)
+        if best is None or d < best_d or (d == best_d and eb[2] > best_x):
+            best = {"text": t, "bbox": list(eb)}
+            best_d = d
+            best_x = eb[2]
+    return best
+
+
+def _find_parenthetical_annotations(boxes, label_bbox, elements, median_text_h):
+    """
+    Small parenthetical instructions printed INSIDE a writing line's value box
+    on a blank form ("(Include month, day, and year)" beneath "Date of
+    Birth"). These are part of the field's label, not foreign content. Returns
+    [{"text", "bbox"}, ...] for annotations substantially inside one of the
+    value boxes and not overlapping the field's own label.
+    """
+    out = []
+    for el in elements or []:
+        eb = el.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        text = (el.get("text") or "").strip()
+        if not (text.startswith("(") and text.endswith(")")):
+            continue
+        if len(text) < 5 or not re.search(r"[A-Za-z0-9\u00C0-\u024F]", text):
+            continue
+        if label_bbox and _iou(eb, label_bbox) > 0.0:
+            continue
+        ew = eb[2] - eb[0]
+        eh = eb[3] - eb[1]
+        if ew <= 0 or eh <= 0:
+            continue
+        elem_area = ew * eh
+        for b in boxes or []:
+            ix1, iy1 = max(eb[0], b[0]), max(eb[1], b[1])
+            ix2, iy2 = min(eb[2], b[2]), min(eb[3], b[3])
+            if ix2 <= ix1 or iy2 <= iy1:
+                continue
+            if (ix2 - ix1) * (iy2 - iy1) >= 0.5 * elem_area:
+                out.append({"text": text, "bbox": list(eb)})
+                break
+    return out
+
+
+def _region_contains_foreign_text(boxes, label_bbox, elements, ignore_bboxes=None):
     """True when printed OCR text sits substantially INSIDE one of the field's
     value boxes and is NOT the field's own label.
 
@@ -490,11 +637,18 @@ def _region_contains_foreign_text(boxes, label_bbox, elements):
     a neighbouring row's label that merely clips a wide box's edge cannot
     trigger a rejection.
 
+    `ignore_bboxes` lists elements already absorbed into the field's label
+    (e.g. a parenthetical annotation appended to it); they never count as
+    foreign text here.
+
     Returns True when at least one such foreign text exists.
     """
+    ignores = [b for b in (ignore_bboxes or []) if b and len(b) == 4]
     for el in elements or []:
         eb = el.get("bbox")
         if not eb or len(eb) != 4:
+            continue
+        if any(_iou(eb, b) > 0.0 for b in ignores):
             continue
         text = (el.get("text") or "").strip()
         if len(text) < 2 or not re.search(r"[A-Za-z0-9\u00C0-\u024F]", text):
@@ -589,6 +743,15 @@ def build_template_fields(doc_rep, image_width, image_height):
             if region.get("kind") == "grid_cell":
                 if label in group_labels:
                     continue  # the checkbox group already owns this label
+                # A grid cell that merely wraps other real fields (e.g. a row
+                # box around "Salesperson's Name: ______" or a parenthetical
+                # instruction strip) is a container, not a field: drop it so
+                # the inner regions stand alone instead of becoming its value.
+                if _grid_cell_is_container(
+                    region, doc_rep.get("input_regions", []), elements,
+                    median_text_h,
+                ):
+                    continue
                 entries.append((region, label_info))
                 continue
             if _label_is_field_label(label) or cap_label:
@@ -706,6 +869,44 @@ def build_template_fields(doc_rep, image_width, image_height):
                 b[1] -= pad_up
                 b[3] += pad_down
 
+        # A caption-under-rule field whose authoritative label is a small
+        # parenthetical instruction ("(Include month, day, and year)" beneath
+        # the "Date of Hire" rule) carries the real label printed on the SAME
+        # line to its left, not just the instruction.
+        cap_label = region.get("label") or ""
+        if (
+            cap_label
+            and label_info["text"].lstrip().startswith("(")
+            and (left := _left_field_label(
+                rb, elements, median_text_h, label_info["text"]
+            ))
+        ):
+            label_info["text"] = (
+                left["text"].rstrip() + " " + label_info["text"].strip()
+            )
+            label_info["bbox"] = _union_bbox(
+                [label_info["bbox"], left["bbox"]]
+            )
+
+        # Parenthetical instructions printed INSIDE a writing line's value box
+        # (e.g. "(Include month, day, and year)" under "Date of Birth ______")
+        # are part of the field's label, not foreign content: append them and
+        # shield them from the empty-form guard below.
+        ignore_bboxes = []
+        if kind in ("underline", "box", "blank"):
+            annots = _find_parenthetical_annotations(
+                boxes, label_info["bbox"], elements, median_text_h
+            )
+            if annots:
+                label_info["text"] = (
+                    label_info["text"].rstrip() + " "
+                    + " ".join(a["text"] for a in annots)
+                ).strip()
+                label_info["bbox"] = _union_bbox(
+                    [label_info["bbox"]] + [a["bbox"] for a in annots]
+                )
+                ignore_bboxes = [a["bbox"] for a in annots]
+
         # Empty-form guard: a real input region on a blank form contains no
         # printed text other than its own label.  A rule that merely carries
         # printed header content (the "Property Tax" / "Form 50-135" header
@@ -714,7 +915,7 @@ def build_template_fields(doc_rep, image_width, image_height):
         # content (checkbox groups' option labels, grid cells' interior label
         # strip) stay out of this check.
         if kind in ("underline", "box", "blank") and _region_contains_foreign_text(
-            boxes, label_info["bbox"], elements
+            boxes, label_info["bbox"], elements, ignore_bboxes=ignore_bboxes
         ):
             continue
 
