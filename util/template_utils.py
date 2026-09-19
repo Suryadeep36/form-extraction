@@ -620,7 +620,8 @@ def _find_parenthetical_annotations(boxes, label_bbox, elements, median_text_h):
     return out
 
 
-def _region_contains_foreign_text(boxes, label_bbox, elements, ignore_bboxes=None):
+def _region_contains_foreign_text(boxes, label_bbox, elements, ignore_bboxes=None,
+                                  median_text_h=None):
     """True when printed OCR text sits substantially INSIDE one of the field's
     value boxes and is NOT the field's own label.
 
@@ -641,6 +642,11 @@ def _region_contains_foreign_text(boxes, label_bbox, elements, ignore_bboxes=Non
     (e.g. a parenthetical annotation appended to it); they never count as
     foreign text here.
 
+    `median_text_h` sizes the watermark exclusion: a background watermark /
+    oversized graphic (e.g. a faint company logo text printed across writing
+    lines) is far taller than ordinary printed text, so it can never be content
+    that sits inside a single value box.
+
     Returns True when at least one such foreign text exists.
     """
     ignores = [b for b in (ignore_bboxes or []) if b and len(b) == 4]
@@ -659,6 +665,10 @@ def _region_contains_foreign_text(boxes, label_bbox, elements, ignore_bboxes=Non
         ew = eb[2] - eb[0]
         eh = eb[3] - eb[1]
         if ew <= 0 or eh <= 0:
+            continue
+        # Background watermark / oversized graphic: taller than ~3 text lines
+        # it cannot be printed content of a writing line at all.
+        if median_text_h and eh > 3.0 * median_text_h:
             continue
         elem_area = ew * eh
         for b in boxes:
@@ -915,7 +925,8 @@ def build_template_fields(doc_rep, image_width, image_height):
         # content (checkbox groups' option labels, grid cells' interior label
         # strip) stay out of this check.
         if kind in ("underline", "box", "blank") and _region_contains_foreign_text(
-            boxes, label_info["bbox"], elements, ignore_bboxes=ignore_bboxes
+            boxes, label_info["bbox"], elements,
+            ignore_bboxes=ignore_bboxes, median_text_h=median_text_h,
         ):
             continue
 
