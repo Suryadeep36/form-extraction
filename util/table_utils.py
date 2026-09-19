@@ -164,7 +164,12 @@ def detect_table_candidates(
 
     for idx in range(1, n_comp):
         x, y, cw, ch, area = stats[idx]
-        if area < min_area:
+        # The region FOOTPRINT (bounding box) is the meaningful size gate: a
+        # sparse form grid (a few long rules + a handful of short verticals)
+        # can carry very little ink even though it spans a large area, so
+        # gating on raw ink pixels silently drops real grids. The bbox area
+        # keeps the old intent (reject tinny fragments) without the ink bias.
+        if cw * ch < min_area:
             continue
         if cw < min_w or ch < min_h:
             continue
@@ -182,6 +187,12 @@ def detect_table_candidates(
             continue
 
         intersects = segment_intersections(inside_h, inside_v)
+        # A single drawn box has exactly 4 intersections (its corners). A real
+        # table - even a plain 1x2/2x1 grid - will have at least 6. Requiring
+        # this here prevents lone rectangles from surfacing as CV tables that
+        # would then swallow the input fields inside them.
+        if len(intersects) < 6:
+            continue
 
         candidate = {
             "bbox": bbox,

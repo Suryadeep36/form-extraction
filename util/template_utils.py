@@ -404,11 +404,25 @@ def _label_for_region(region, elements, median_text_h, exclude_texts=None):
         # A fraction of extra tolerance (1.15x, a few px) lets an OCR box that
         # pokes a hair past the region's line window ("City" under a slightly
         # taller writing box) still be the row's label.
-        if cy >= y1 - 1.5 * mh and eb[3] <= y1 + 1.15 * mh and eb[2] <= x1 + tol:
-            if eb[0] < x2:
+        #
+        # A bordered BOX is a writing CELL: its printed row label commonly sits
+        # vertically INSIDE the cell ("(a)/(b)/(c)" value-box rows on form 123),
+        # not neatly above a writing line.  For such cells require the label
+        # CENTER to lie within the cell's own vertical extent -- that pins the
+        # exact row even when stacked cells are only ~1 text line apart -- and
+        # widen the distance cap, since a short printed label may end well
+        # before the box's left edge.
+        if cy >= y1 - 1.5 * mh and eb[2] <= x1 + tol:
+            if region.get("kind") == "box":
+                row_hit = y1 <= cy <= y2
+                d_cap = max(max_dist, min(30 * mh, 650))
+            else:
+                row_hit = eb[3] <= y1 + 1.15 * mh
+                d_cap = max_dist
+            if row_hit and eb[0] < x2:
                 dx, dy = _region_gap(rb, eb)
                 d = math.hypot(dx, dy)
-                if d <= max_dist:
+                if d <= d_cap:
                     candidates.append({
                         "text": text, "bbox": eb, "el": el,
                         "dist": d, "above": False,
@@ -424,8 +438,15 @@ def _label_for_region(region, elements, median_text_h, exclude_texts=None):
     bbox = best["bbox"]
 
     # Parenthetical instructions ("(Gujarat Board ...):") are not labels; the
-    # nearest non-instruction label above is the real one.
-    if text.lstrip().startswith("(") and len(text) > 12:
+    # nearest non-instruction label above is the real one.  An ENUMERATED list
+    # item ("(a) The market value...", "(1) ...", "(iii) ...") carries its own
+    # real label, so it must not be redirected upward.
+    _ENUM_PREFIX = re.compile(r"^\(\s*[a-z0-9ivxlcdm]{1,4}\s*\)\s+", re.I)
+    if (
+        text.lstrip().startswith("(")
+        and len(text) > 12
+        and not _ENUM_PREFIX.match(text)
+    ):
         primary = _closest_above(rb, elements, mh)
         if primary:
             return {"text": primary["text"], "bbox": primary["bbox"]}

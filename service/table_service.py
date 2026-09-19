@@ -349,6 +349,16 @@ def detect_and_fuse_tables(image, elements):
                 print(f"[TABLE FILTER] Dropped ML fake table (Single cell / <= 4 intersections): {bbox}")
                 continue
 
+            # FILTER 2b: Single-column row stacks are field groups, not tables.
+            # A region whose CV grid has no interior vertical dividers (only the
+            # two outer borders) and several stacked rows is a stack of form
+            # fields (label + underline per row, e.g. SIGNATURE / Address /
+            # Date / Telephone), not a table. Keeping it would swallow those
+            # fields as empty cells.
+            if cv_match and _is_single_column_stack(cv_match):
+                print(f"[TABLE FILTER] Dropped ML fake table (single-column field stack): {bbox}")
+                continue
+
             # FILTER 3: Field-layout lookalike
             # Whole-page layouts of form fields (labels + underlines/boxes)
             # are routinely misread as a single giant "table". A genuine
@@ -398,6 +408,11 @@ def detect_and_fuse_tables(image, elements):
             if cv.get("n_intersections", 0) == 0:
                 continue
             if (bbox[3] - bbox[1]) < max(60, height * 0.03):
+                continue
+            # FILTER 2b (single-column field stack), same as the model branch:
+            # a stack of field underlines must not become a table.
+            if _is_single_column_stack(cv):
+                print(f"[TABLE FILTER] Dropped CV fake table (single-column field stack): {bbox}")
                 continue
             # FILTER 3 (field-layout lookalike), same as the model branch:
             # whole-page layouts of form fields (labels + underlines/boxes)
@@ -690,6 +705,22 @@ def _clamp_bbox(bbox, width, height):
 def _cell_bbox_center(cell):
     bbox = cell["bbox"]
     return [(bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0]
+
+
+def _is_single_column_stack(cv_candidate):
+    """
+    Detect a vertical stack of form-field rows that LOOKS like a bordered
+    grid but is really one field under each label (Signature / Address /
+    Date / Telephone ...).
+
+    Signals: the CV grid has no interior vertical dividers (at most the two
+    outer border lines => `n_vertical <= 2`) but at least three stacked rows.
+    A genuine table carries at least one interior column divider; a form
+    section with only label rows is a field group, not a table.
+    """
+    n_vertical = cv_candidate.get("n_vertical", 0) or 0
+    n_horizontal = cv_candidate.get("n_horizontal", 0) or 0
+    return n_vertical <= 2 and n_horizontal >= 3
 
 
 def _clip_phantom_cells(cells, table_bbox):

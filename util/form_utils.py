@@ -159,6 +159,41 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
             entry["label"] = cap["text"]
             entry["label_bbox"] = cap["bbox"]
         box_regions.append(entry)
+
+    # A box that merely frames a stacked column of inner boxes (a tall
+    # "a / b / c" frame drawn as ONE outer box with interior dividers) is a
+    # container, not a value region: drop it so the inner cells stand alone.
+    # Its children (≥2) share its left/right edges and tile its full height.
+    box_tol = max(4.0, 0.2 * median_text_h)
+
+    def _is_box_container(box, all_boxes):
+        bb = box["bbox"]
+        area = max((bb[2] - bb[0]) * (bb[3] - bb[1]), 1.0)
+        covered = 0.0
+        children = 0
+        for other in all_boxes:
+            if other is box:
+                continue
+            ob = other["bbox"]
+            # Only STRICTLY smaller boxes can be interior cells of this box.
+            # An enclosing frame is bigger than the cell, so counting it as
+            # the cell's child would make every inner cell of a divided
+            # "a/b/c" frame look like a container and get dropped wholesale.
+            if (ob[2] - ob[0]) * (ob[3] - ob[1]) >= area:
+                continue
+            if not (abs(ob[0] - bb[0]) <= box_tol and abs(ob[2] - bb[2]) <= box_tol):
+                continue
+            cx1 = max(ob[0], bb[0])
+            cy1 = max(ob[1], bb[1])
+            cx2 = min(ob[2], bb[2])
+            cy2 = min(ob[3], bb[3])
+            if cx2 <= cx1 or cy2 <= cy1:
+                continue
+            covered += (cx2 - cx1) * (cy2 - cy1)
+            children += 1
+        return children >= 2 and covered >= 0.95 * area
+
+    box_regions = [b for b in box_regions if not _is_box_container(b, box_regions)]
     raw.extend(box_regions)
 
     # ---- 2b. caption-under-rule fields (line or box above a small name) -----
@@ -210,6 +245,41 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
                 }
             )
 
+# ---- absorb underline/caption lines into their enclosing box ----------
+    # A printed box's borders are horizontal lines too, so the underline pass
+    # (and the caption-rule pass) register the box's TOP and BOTTOM edges --
+    # and any caption rule printed inside it -- as separate `underline`
+    # regions.  A real input BOX is the authoritative value region: one box
+    # must yield one field, not "box + 2 underlines".  Absorb every line whose
+    # band rides inside a detected box (its border or an inner caption rule)
+    # and shares most of the box's width.  No label is transferred here: the
+    # border line's caption is dropped with the line; the box gets its label
+    # from the surrounding text via template label-association ("__/__"
+    # captions, text above / to-the-left, same-row band rules).  Multi-row
+    # "____ / ____" fields are unaffected: they have no enclosing box.
+    if box_regions:
+        absorb_tol = max(4.0, 0.2 * median_text_h)
+        dropped_ids = set()
+        for region in raw:
+            if region.get("kind") != "underline":
+                continue
+            rb = region["bbox"]
+            line_cy = (rb[1] + rb[3]) / 2.0
+            rw = max(rb[2] - rb[0], 1.0)
+            for box in box_regions:
+                bb = box["bbox"]
+                if not (bb[1] - absorb_tol <= line_cy <= bb[3] + absorb_tol):
+                    continue
+                xov = min(rb[2], bb[2]) - max(rb[0], bb[0])
+                if xov <= 0:
+                    continue
+                if xov < 0.7 * rw or xov < 0.5 * (bb[2] - bb[0]):
+                    continue
+                dropped_ids.add(id(region))
+                break
+        if dropped_ids:
+            raw = [r for r in raw if id(r) not in dropped_ids]
+
     # ---- deduplicate overlapping regions ----------------------------------
     ordered = sorted(raw, key=lambda r: r["confidence"], reverse=True)
     deduped = []
@@ -259,13 +329,20 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
 
 
 def _box_contains_text(bbox, elements):
-    """True when an OCR element's center falls inside the box. A photo/logo
-    frame carries printed text inside ("Paste your passport photograph here")
-    while a genuine input box on an empty form is blank."""
+    """True when a real word's center falls inside the box. A photo/logo frame
+    carries printed words inside ("Paste your passport photograph here") while
+    a genuine input box on an empty form is blank.  Lone decorative glyphs
+    printed inside a value box as part of the prompt (a currency symbol "\u20ac"
+    in "Market Value [\u20ac]____", a date slash "//") are NOT disqualifying:
+    a REAL input box may legitimately carry such pre-printed marks, so only a
+    word of at least two letters can mark a box as text-bearing."""
     if not elements:
         return False
     bx1, by1, bx2, by2 = bbox
     for el in elements:
+        text = (el.get("text") or "").strip()
+        if len(text) < 2 or not re.search(r"[A-Za-z]{2}", text):
+            continue
         eb = el.get("bbox")
         if not eb or len(eb) != 4:
             continue
@@ -296,13 +373,15 @@ def _detect_box_regions(gray, elements=None, min_ratio=0.004, max_ratio=0.22):
         if area_ratio < min_ratio or area_ratio > max_ratio:
             continue
 
-        if cw > w * 0.5:
+        # A full-width field box (its blank writing area spans most of the
+        # page, e.g. "(e) The class(es)..." on form 123) is a genuine input
+        # region.  Only reject near-full-page rectangles (a box that is both
+        # wider than the page half AND tall enough to be a whole section).
+        if cw > w * 0.5 and ch > 0.4 * h:
             continue
 
         perimeter = cv2.arcLength(contour, True)
         approx = cv2.approxPolyDP(contour, 0.03 * perimeter, True)
-        if len(approx) < 4:
-            continue
 
         # Rectangularity: contour area close to bounding-rect area and fill
         # roughly a hollow box (closed outline, low interior ink).
@@ -313,6 +392,14 @@ def _detect_box_regions(gray, elements=None, min_ratio=0.004, max_ratio=0.22):
         rect_ratio = contour_area / rect_area
         if rect_ratio < 0.4:
             continue  # too sparse to be an outline
+
+        # A box whose borders are printed as thin/faint rules (field boxes on
+        # a light-blue template) often has a sparse contour whose polygon
+        # approximation collapses to 2 points.  When the enclosed area still
+        # nearly fills its bounding rect (a clean ring) it IS a box; only the
+        # polygon gate can be omitted for such rings.
+        if len(approx) < 4 and rect_ratio < 0.85:
+            continue
 
         interior = binary[y + 2 : y + ch - 2, x + 2 : x + cw - 2]
         if interior.size == 0:
