@@ -324,7 +324,12 @@ def _checkbox_candidates(
         if side < low or big > high:
             return False
         aspect = cw / float(ch) if ch else 0.0
-        if not (0.8 <= aspect <= 1.2):
+        # A selection box is roughly square; real forms print option boxes
+        # that are a bit wider than tall (slightly rectangular), so the band
+        # is a little wider than a strict square. Text entry boxes and ruling
+        # segments are FAR wider than tall (aspect >> 1.4) and are still
+        # rejected by this alone.
+        if not (0.75 <= aspect <= 1.4):
             return False
         bbox = [float(x), float(y), float(x + cw), float(y + ch)]
         cx = x + cw / 2.0
