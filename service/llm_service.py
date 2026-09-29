@@ -207,6 +207,9 @@ OUTPUT FORMAT (JSON only)
 }}
 """
 
+from tenacity import retry, wait_exponential, stop_after_attempt
+
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5))
 def run_pass_1_llm_splitter(compound_texts: list) -> dict:
     """
     Sends compound OCR strings to Gemini to split them

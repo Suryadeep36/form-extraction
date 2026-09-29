@@ -1,4 +1,5 @@
 import { toPct, normPixelBbox, COLORS } from '../bbox.js';
+import AuthImage from './AuthImage.jsx';
 
 function Box({ style, color, fill = '0.10', label, title, z = 0 }) {
   if (!style) return null;
@@ -43,7 +44,7 @@ export default function DocumentImage({
   return (
     <div className="relative border-2 border-dashed border-gray-300 bg-gray-200 rounded-lg overflow-hidden shadow-inner">
       {imageSrc ? (
-        <img
+        <AuthImage
           src={imageSrc}
           alt="Scanned Document"
           className="w-full h-auto block object-contain"

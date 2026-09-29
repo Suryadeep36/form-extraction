@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import Viewer from '../components/Viewer.jsx';
-import { API_BASE } from '../api.js';
+import { useApi, API_BASE } from '../api.js';
 
 export default function Extractor() {
   const [file, setFile] = useState(null);
@@ -9,6 +9,7 @@ export default function Extractor() {
   const [response, setResponse] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const { apiFetch } = useApi();
 
   const handleFileChange = (e) => {
     const selected = e.target.files?.[0];
@@ -46,7 +47,7 @@ export default function Extractor() {
       const formData = new FormData();
       formData.append('image', file);
 
-      const result = await fetch(`${API_BASE}/extract-document`, {
+      const result = await apiFetch(`${API_BASE}/extract-document`, {
         method: 'POST',
         body: formData,
       });

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { API_BASE } from '../api.js';
+import { useApi, API_BASE } from '../api.js';
+import AuthImage from '../components/AuthImage.jsx';
 
 function formatDate(iso) {
   if (!iso) return '—';
@@ -21,11 +22,12 @@ export default function Dashboard() {
   const [docs, setDocs] = useState(null);
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const { apiFetch } = useApi();
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/documents`);
+      const res = await apiFetch(`${API_BASE}/documents`);
       if (!res.ok) {
         let detail = `Server responded with status: ${res.status}`;
         try {
@@ -53,7 +55,7 @@ export default function Dashboard() {
     if (!window.confirm(`Delete "${filename}"?`)) return;
     setDeleting(id);
     try {
-      const res = await fetch(`${API_BASE}/documents/${id}`, {
+      const res = await apiFetch(`${API_BASE}/documents/${id}`, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error(`Delete failed with status ${res.status}`);
@@ -115,7 +117,7 @@ export default function Dashboard() {
             >
               <Link to={`/document/${doc.id}`} className="block bg-gray-100">
                 {doc.image_width ? (
-                  <img
+                  <AuthImage
                     src={`${API_BASE}/documents/${doc.id}/image`}
                     alt={doc.original_filename}
                     loading="lazy"

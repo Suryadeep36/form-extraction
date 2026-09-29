@@ -18,7 +18,9 @@ import base64
 import datetime
 
 from util.config import UPLOAD_DIR
+from util.config import UPLOAD_DIR
 from service.template_service import extract_filled, _json_safe
+from service.s3_service import upload_to_s3, download_from_s3, list_from_s3, delete_from_s3
 
 FILLED_DIR = os.path.join(UPLOAD_DIR, "filled_forms")
 
@@ -43,14 +45,8 @@ def _mime_of(data_url):
     return prefix[5:].split(";", 1)[0] or "image/jpeg"
 
 
-def save_filled_form(template, image_path, source_filename=None):
-    """Extract a FILLED form against `template` and persist the result.
-
-    Returns the record dict as delivered to the API client (the warped image
-    is included inline as a data URL for immediate display).  On disk the
-    image is stored as a separate JPEG; the JSON file keeps a file reference
-    instead of the base64 blob.
-    """
+def save_filled_form(user_id, template, image_path, source_filename=None):
+    """Extract a FILLED form against `template` and persist the result to S3."""
     extraction = extract_filled(template, image_path)
     filled_id = str(uuid.uuid4())
 
@@ -60,8 +56,7 @@ def save_filled_form(template, image_path, source_filename=None):
     if warped:
         try:
             payload = warped.split(",", 1)[1]
-            with open(_image_path(filled_id), "wb") as f:
-                f.write(base64.b64decode(payload))
+            upload_to_s3(user_id, "filled_forms", f"{filled_id}.jpg", base64.b64decode(payload), warped_mime)
             stored_image = f"{filled_id}.jpg"
         except Exception as e:
             print(f"[FILLED] warp image save failed: {e}")
@@ -82,8 +77,8 @@ def save_filled_form(template, image_path, source_filename=None):
         },
     }
 
-    with open(_json_path(filled_id), "w") as f:
-        json.dump(_json_safe(record), f, indent=2)
+    record_json = json.dumps(_json_safe(record), indent=2).encode('utf-8')
+    upload_to_s3(user_id, "filled_forms", f"{filled_id}.json", record_json, "application/json")
 
     # Client-facing record carries the warped image inline.
     if warped:
@@ -97,17 +92,20 @@ def save_filled_form(template, image_path, source_filename=None):
     return record
 
 
-def list_filled_forms(template_id=None):
-    """Summaries (no image payload) for all saved filled forms."""
-    if not os.path.isdir(_dir()):
-        return []
+def list_filled_forms(user_id, template_id=None):
+    """Summaries (no image payload) for all saved filled forms in S3."""
+    keys = list_from_s3(user_id, "filled_forms")
     out = []
-    for fname in sorted(os.listdir(_dir()), reverse=True):
-        if not fname.endswith(".json"):
+    # Reverse sort gives approximate newest-first if using UUIDs, but created_at is better
+    for key in sorted(keys, reverse=True):
+        if not key.endswith(".json"):
             continue
         try:
-            with open(os.path.join(_dir(), fname)) as f:
-                rec = json.load(f)
+            file_id = key.split("/")[-1]
+            meta_bytes = download_from_s3(user_id, "filled_forms", file_id)
+            if not meta_bytes: continue
+            
+            rec = json.loads(meta_bytes)
             if template_id and rec.get("template_id") != template_id:
                 continue
             extraction = rec.get("extraction") or {}
@@ -122,25 +120,26 @@ def list_filled_forms(template_id=None):
                 "has_image": bool(rec.get("warped_image_file")),
             })
         except Exception as e:
-            print(f"[FILLED] skip {fname}: {e}")
+            print(f"[FILLED] skip {key}: {e}")
+    # Sort out by created_at explicitly
+    out.sort(key=lambda x: x.get("created_at", ""), reverse=True)
     return out
 
 
-def load_filled_form(filled_id, include_image=True):
+def load_filled_form(user_id, filled_id, include_image=True):
     """Full record for one filled form, optionally with the warped image data
-    URL reconstructed from the stored JPEG."""
-    path = _json_path(filled_id)
-    if not os.path.exists(path):
+    URL reconstructed from the stored JPEG in S3."""
+    meta_bytes = download_from_s3(user_id, "filled_forms", f"{filled_id}.json")
+    if not meta_bytes:
         return None
-    with open(path) as f:
-        record = json.load(f)
+        
+    record = json.loads(meta_bytes)
     extraction = record.get("extraction") or {}
 
     if include_image and record.get("warped_image_file"):
-        ipath = os.path.join(_dir(), record["warped_image_file"])
-        if os.path.exists(ipath):
-            with open(ipath, "rb") as f:
-                data = base64.b64encode(f.read()).decode()
+        img_bytes = download_from_s3(user_id, "filled_forms", record["warped_image_file"])
+        if img_bytes:
+            data = base64.b64encode(img_bytes).decode()
             mime = record.get("warped_image_mime") or "image/jpeg"
             extraction = dict(extraction)
             extraction["warped_image_data_url"] = f"data:{mime};base64,{data}"
@@ -149,10 +148,7 @@ def load_filled_form(filled_id, include_image=True):
     return record
 
 
-def delete_filled_form(filled_id):
-    removed = False
-    for path in (_json_path(filled_id), _image_path(filled_id)):
-        if os.path.exists(path):
-            os.remove(path)
-            removed = True
-    return removed
+def delete_filled_form(user_id, filled_id):
+    removed_json = delete_from_s3(user_id, "filled_forms", f"{filled_id}.json")
+    removed_img = delete_from_s3(user_id, "filled_forms", f"{filled_id}.jpg")
+    return removed_json or removed_img

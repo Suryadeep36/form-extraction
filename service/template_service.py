@@ -41,6 +41,7 @@ from util.template_utils import (
     find_label_anchor,
 )
 from util.config import UPLOAD_DIR
+from service.s3_service import upload_to_s3, download_from_s3, list_from_s3
 
 TEMPLATES_DIR = os.path.join(UPLOAD_DIR, "templates")
 
@@ -78,69 +79,75 @@ def _reference_path(template_id):
     return os.path.join(_templates_dir(), f"{template_id}_ref.jpg")
 
 
-def save_template(template):
-    """Persist a template dict + its reference image. Returns template_id."""
+def save_template(user_id, template):
+    """Persist a template dict + its reference image to S3. Returns template_id."""
     template_id = template.get("id") or str(uuid.uuid4())
     template["id"] = template_id
     ref_image = template.pop("reference_image", None)
-    with open(_template_path(template_id), "w") as f:
-        meta = {k: v for k, v in template.items() if k != "reference_image"}
-        json.dump(meta, f, indent=2)
+    
+    meta = {k: v for k, v in template.items() if k != "reference_image"}
+    meta_json = json.dumps(meta, indent=2).encode('utf-8')
+    
+    upload_to_s3(user_id, "templates", f"{template_id}.json", meta_json, "application/json")
+    
     if ref_image is not None:
         ok, buf = cv2.imencode(".jpg", ref_image)
         if ok:
-            with open(_reference_path(template_id), "wb") as f:
-                f.write(buf.tobytes())
+            upload_to_s3(user_id, "templates", f"{template_id}_ref.jpg", buf.tobytes(), "image/jpeg")
+            
     return template_id
 
 
-def load_template(template_id, with_reference=False):
-    path = _template_path(template_id)
-    if not os.path.exists(path):
+def load_template(user_id, template_id, with_reference=False):
+    meta_bytes = download_from_s3(user_id, "templates", f"{template_id}.json")
+    if not meta_bytes:
         return None
-    with open(path) as f:
-        template = json.load(f)
+        
+    template = json.loads(meta_bytes)
+    
     if with_reference:
-        ref_path = _reference_path(template_id)
-        if os.path.exists(ref_path):
-            template["reference_image"] = cv2.imread(ref_path)
+        ref_bytes = download_from_s3(user_id, "templates", f"{template_id}_ref.jpg")
+        if ref_bytes:
+            nparr = np.frombuffer(ref_bytes, np.uint8)
+            template["reference_image"] = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
     return template
 
 
-def get_template_image(template_id):
+def get_template_image(user_id, template_id):
     """
     Raw bytes of a template's reference (preprocessed blank-form) image, or
     None when the template does not exist / has no stored image.
     """
-    if not os.path.exists(_template_path(template_id)):
+    meta_bytes = download_from_s3(user_id, "templates", f"{template_id}.json")
+    if not meta_bytes:
         return None
-    ref_path = _reference_path(template_id)
-    if not os.path.exists(ref_path):
-        return None
-    with open(ref_path, "rb") as f:
-        return f.read()
+        
+    return download_from_s3(user_id, "templates", f"{template_id}_ref.jpg") or None
 
 
-def list_templates():
-    if not os.path.isdir(_templates_dir()):
-        return []
+def list_templates(user_id):
+    keys = list_from_s3(user_id, "templates")
     out = []
-    for fname in sorted(os.listdir(_templates_dir())):
-        if not fname.endswith(".json"):
+    for key in sorted(keys):
+        if not key.endswith(".json"):
             continue
         try:
-            with open(os.path.join(_templates_dir(), fname)) as f:
-                t = json.load(f)
-            out.append({
-                "id": t.get("id"),
-                "name": t.get("name"),
-                "source_filename": t.get("source_filename"),
-                "field_count": len(t.get("fields", [])),
-                "table_count": len(t.get("tables", [])),
-                "created_at": t.get("created_at"),
-            })
+            # key is like "user_id/templates/abc.json"
+            file_id = key.split("/")[-1]
+            meta_bytes = download_from_s3(user_id, "templates", file_id)
+            if meta_bytes:
+                t = json.loads(meta_bytes)
+                out.append({
+                    "id": t.get("id"),
+                    "name": t.get("name"),
+                    "source_filename": t.get("source_filename"),
+                    "field_count": len(t.get("fields", [])),
+                    "table_count": len(t.get("tables", [])),
+                    "created_at": t.get("created_at"),
+                })
         except Exception as e:
-            print(f"[TEMPLATE] skip {fname}: {e}")
+            print(f"[TEMPLATE] skip {key}: {e}")
     return out
 
 
@@ -148,7 +155,7 @@ def list_templates():
 # Pass 1 - registration
 # ---------------------------------------------------------------------------
 
-def register_template(image_path, name=None):
+def register_template(user_id, image_path, name=None):
     """
     Take an EMPTY form image and build a template from its blank structure.
 
@@ -180,7 +187,7 @@ def register_template(image_path, name=None):
     import datetime
     template["created_at"] = datetime.datetime.utcnow().isoformat()
 
-    template_id = save_template(template)
+    template_id = save_template(user_id, template)
     # Encode reference image as data URL for the API response (not stored in JSON).
     ok, buf = cv2.imencode(".jpg", info["image"])
     ref_url = None

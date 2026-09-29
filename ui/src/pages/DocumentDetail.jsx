@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import Viewer from '../components/Viewer.jsx';
-import { API_BASE } from '../api.js';
+import { useApi, API_BASE } from '../api.js';
 
 function formatDate(iso) {
   if (!iso) return '—';
@@ -24,6 +24,7 @@ export default function DocumentDetail() {
   const [record, setRecord] = useState(null);
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const { apiFetch } = useApi();
 
   useEffect(() => {
     let cancelled = false;
@@ -32,7 +33,7 @@ export default function DocumentDetail() {
       setError(null);
       setRecord(null);
       try {
-        const res = await fetch(`${API_BASE}/documents/${id}`);
+        const res = await apiFetch(`${API_BASE}/documents/${id}`);
         if (!res.ok) {
           let detail = `Server responded with status: ${res.status}`;
           try {
@@ -60,7 +61,7 @@ export default function DocumentDetail() {
     if (!window.confirm(`Delete "${record?.original_filename}"?`)) return;
     setDeleting(true);
     try {
-      const res = await fetch(`${API_BASE}/documents/${id}`, {
+      const res = await apiFetch(`${API_BASE}/documents/${id}`, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error(`Delete failed with status ${res.status}`);

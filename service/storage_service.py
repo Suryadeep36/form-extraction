@@ -1,70 +1,32 @@
 """
-PostgreSQL persistence for uploaded documents and their extraction output.
+S3 persistence for uploaded unstructured documents and their extraction output.
 
-Files are stored on disk under config.UPLOAD_DIR (e.g. `uploads/`) while the
-database keeps one `documents` row per upload with everything needed to replay
-the live viewer: metadata (filename, mime type, document type, status, image
-dimensions) plus the complete /extract-document response body as JSONB.
+Files are stored on S3.
+- `{doc_id}.json` stores metadata and full response
+- `{doc_id}_img.jpg` stores the perspective-corrected image
 
-All helpers return builtin types only (no psycopg objects) so the FastAPI
+All helpers return builtin types only so the FastAPI
 layer can serialize them directly.
 """
 
 import os
-import re
+import json
 import uuid
 import base64
+from datetime import datetime
 
-import psycopg
-from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
-
-from util.config import DATABASE_URL, UPLOAD_DIR
-
-
-def _connect():
-    """Open a psycopg3 connection that returns dict-style rows."""
-    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
-
-DOCUMENTS_SCHEMA = """
-CREATE TABLE IF NOT EXISTS documents (
-    id                uuid PRIMARY KEY,
-    original_filename text NOT NULL,
-    file_path         text,
-    mime_type         text,
-    document_type     text,
-    status            text NOT NULL DEFAULT 'processing',
-    image_width       integer,
-    image_height      integer,
-    full_response     jsonb NOT NULL,
-    created_at        timestamptz NOT NULL DEFAULT now(),
-    updated_at        timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS documents_created_at_idx
-    ON documents (created_at DESC);
-"""
-
-
-def storage_enabled() -> bool:
-    """Whether persistence is usable (DATABASE_URL configured)."""
-    return bool(DATABASE_URL)
+from service.s3_service import upload_to_s3, download_from_s3, list_from_s3, delete_from_s3
 
 
 def init_db() -> bool:
-    """Create the documents table."""
-    if not DATABASE_URL:
-        print("[STORAGE] DATABASE_URL not set - document storage disabled.")
-        return False
-    try:
-        with _connect() as conn:
-            conn.execute(DOCUMENTS_SCHEMA)
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        print("[STORAGE] Database ready.")
-        return True
-    except Exception as e:  # pragma: no cover - defensive startup path
-        print(f"[STORAGE] init failed: {e}")
-        return False
+    """No-op. Left here to satisfy lifespan requirements."""
+    print("[STORAGE] Using S3 for all document storage. No DB needed.")
+    return True
+
+
+def storage_enabled() -> bool:
+    """Always return True since S3 is our only persistent store."""
+    return True
 
 
 def _decode_data_url(data_url):
@@ -76,149 +38,113 @@ def _decode_data_url(data_url):
     return base64.b64decode(data_url)
 
 
-def _abs_path(file_path):
-    """Resolve a stored file path (may be absolute or relative to CWD)."""
-    if not file_path:
-        return None
-    if os.path.isabs(file_path):
-        return file_path
-    return os.path.normpath(os.path.abspath(file_path))
+def _json_safe(obj):
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, (int, float, str, bool, type(None))):
+        return obj
+    return str(obj)
 
 
-def _summarize(row) -> dict:
-    return {
-        "id": str(row["id"]),
-        "original_filename": row["original_filename"],
-        "mime_type": row["mime_type"],
-        "document_type": row["document_type"],
-        "status": row["status"],
-        "image_width": row["image_width"],
-        "image_height": row["image_height"],
-        "created_at": row["created_at"].isoformat(),
-        "updated_at": row["updated_at"].isoformat(),
-    }
-
-
-def save_document(filename, mime_type, image_data_url, doc_rep, response_body):
-    """Persist a corrected document image + its extraction output.
-
-    `image_data_url` is a base64 data URL of the perspective-corrected image
-    (the coordinate system all overlays are normalized against). It is decoded
-    and written to uploads/; a `documents` row stores the full extraction
-    response. Returns the new document id.
-    """
+def save_document(user_id, filename, mime_type, image_data_url, doc_rep, response_body):
+    """Persist a corrected document image + its extraction output to S3."""
     data = (response_body or {}).get("data") or {}
     document_type = data.get("document_type") if isinstance(data, dict) else None
 
     doc_id = str(uuid.uuid4())
-    ext = os.path.splitext(filename or "")[1]
-    ext = re.sub(r"[^.\w]", "", ext).lower()[:12] or ".jpg"
-    stored_name = f"{uuid.uuid4().hex}{ext}"
-    rel_path = os.path.join(UPLOAD_DIR, stored_name)
-    abs_path = os.path.abspath(rel_path)
+    stored_img_name = f"{doc_id}_img.jpg"
+    
+    image_bytes = _decode_data_url(image_data_url)
+    upload_to_s3(user_id, "documents", stored_img_name, image_bytes, mime_type)
 
-    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-    with open(abs_path, "wb") as fh:
-        fh.write(_decode_data_url(image_data_url))
-
-    with _connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO documents (
-                id, original_filename, file_path, mime_type, document_type,
-                status, image_width, image_height, full_response
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                str(doc_id),
-                filename,
-                rel_path,
-                mime_type,
-                document_type,
-                "completed",
-                doc_rep.get("image_width"),
-                doc_rep.get("image_height"),
-                Jsonb(response_body or {}),
-            ),
-        )
-    return str(doc_id)
-
-
-def list_documents(limit=200):
-    """Summaries ordered newest-first. Never returns stored response bodies."""
-    with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, original_filename, mime_type, document_type, status,
-                   image_width, image_height, created_at, updated_at
-            FROM documents
-            ORDER BY created_at DESC
-            LIMIT %s
-            """,
-            (limit,),
-        ).fetchall()
-    return [_summarize(row) for row in rows]
-
-
-def get_document(doc_id):
-    """Full record including the stored response body, or None."""
-    with _connect() as conn:
-        row = conn.execute(
-            """
-            SELECT id, original_filename, mime_type, document_type, status,
-                   image_width, image_height, full_response, created_at,
-                   updated_at
-            FROM documents
-            WHERE id = %s
-            """,
-            (doc_id,),
-        ).fetchone()
-
-    if row is None:
-        return None
-
-    return {
-        **_summarize(row),
-        "full_response": row["full_response"],
+    record = {
+        "id": doc_id,
+        "original_filename": filename,
+        "file_path": stored_img_name,
+        "mime_type": mime_type,
+        "document_type": document_type,
+        "status": "completed",
+        "image_width": doc_rep.get("image_width"),
+        "image_height": doc_rep.get("image_height"),
+        "full_response": response_body or {},
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat()
     }
+    
+    record_json = json.dumps(_json_safe(record), indent=2).encode('utf-8')
+    upload_to_s3(user_id, "documents", f"{doc_id}.json", record_json, "application/json")
+    
+    return doc_id
 
 
-def get_document_file(doc_id):
+def list_documents(user_id, limit=200):
+    """Summaries ordered newest-first. Never returns stored response bodies."""
+    keys = list_from_s3(user_id, "documents")
+    out = []
+    
+    for key in keys:
+        if not key.endswith(".json"):
+            continue
+        try:
+            file_id = key.split("/")[-1]
+            meta_bytes = download_from_s3(user_id, "documents", file_id)
+            if not meta_bytes:
+                continue
+                
+            rec = json.loads(meta_bytes)
+            out.append({
+                "id": rec.get("id"),
+                "original_filename": rec.get("original_filename"),
+                "mime_type": rec.get("mime_type"),
+                "document_type": rec.get("document_type"),
+                "status": rec.get("status"),
+                "image_width": rec.get("image_width"),
+                "image_height": rec.get("image_height"),
+                "created_at": rec.get("created_at"),
+                "updated_at": rec.get("updated_at"),
+            })
+        except Exception as e:
+            print(f"[STORAGE] skip {key}: {e}")
+            
+    out.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return out[:limit]
+
+
+def get_document(user_id, doc_id):
+    """Full record including the stored response body, or None."""
+    meta_bytes = download_from_s3(user_id, "documents", f"{doc_id}.json")
+    if not meta_bytes:
+        return None
+        
+    return json.loads(meta_bytes)
+
+
+def get_document_file(user_id, doc_id):
     """Bytes + mime type of the stored file, for serving to the UI."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT file_path, mime_type FROM documents WHERE id = %s",
-            (doc_id,),
-        ).fetchone()
-
-    if row is None:
+    record = get_document(user_id, doc_id)
+    if not record or not record.get("file_path"):
+        return None
+        
+    stored_name = record["file_path"]
+    image_bytes = download_from_s3(user_id, "documents", stored_name)
+    if not image_bytes:
         return None
 
-    path = _abs_path(row["file_path"])
-    if not path or not os.path.exists(path):
-        return None
-
-    with open(path, "rb") as fh:
-        return {"mime_type": row["mime_type"], "image": fh.read()}
+    return {"mime_type": record["mime_type"], "image": image_bytes}
 
 
-def delete_document(doc_id):
+def delete_document(user_id, doc_id):
     """Delete a document row. Returns True when a row was actually removed.
     The stored file is also unlinked."""
-    with _connect() as conn:
-        cur = conn.execute(
-            "DELETE FROM documents WHERE id = %s RETURNING file_path",
-            (doc_id,),
-        )
-        row = cur.fetchone()
-
-    if row is None:
+    record = get_document(user_id, doc_id)
+    if not record:
         return False
-
-    path = _abs_path(row["file_path"])
-    if path and os.path.exists(path):
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+        
+    stored_name = record.get("file_path")
+    if stored_name:
+        delete_from_s3(user_id, "documents", stored_name)
+        
+    delete_from_s3(user_id, "documents", f"{doc_id}.json")
     return True

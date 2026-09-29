@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useLayoutEffect, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
-import { API_BASE } from "../api.js";
+import { useApi, API_BASE } from "../api.js";
+import AuthImage from "../components/AuthImage.jsx";
 
 function formatDate(iso) {
   if (!iso) return "—";
@@ -433,6 +434,9 @@ export default function TemplateDetail() {
   const [loadingFilled, setLoadingFilled] = useState(false);
   const [filledForms, setFilledForms] = useState([]);
   const [loadedFilledId, setLoadedFilledId] = useState(null);
+  const [batchStatus, setBatchStatus] = useState(null);
+  const [activeResultIdx, setActiveResultIdx] = useState(0);
+  const [hovered, setHovered] = useState(null);
   const [result, setResult] = useState(null);
   const [frame, setFrame] = useState(null);
   const [frameTick, setFrameTick] = useState(0);
@@ -441,6 +445,7 @@ export default function TemplateDetail() {
   const fileRef = useRef(null);
   const imgBoxRef = useRef(null);
   const wrapBoxRef = useRef(null);
+  const { apiFetch } = useApi();
 
   // Measure the actually-rendered image box (offset + size within its
   // wrapper) whenever a new result arrives or the image (re)loads.
@@ -462,14 +467,14 @@ export default function TemplateDetail() {
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [result, frameTick, active]);
+  }, [result, batchStatus, activeResultIdx, frameTick, active, hovered]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setError(null);
       try {
-        const res = await fetch(`${API_BASE}/templates/${id}`);
+        const res = await apiFetch(`${API_BASE}/templates/${id}`);
         if (!res.ok)
           throw new Error(`Server responded with status: ${res.status}`);
         const json = await res.json();
@@ -486,7 +491,7 @@ export default function TemplateDetail() {
 
   const loadFilledForms = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/templates/${id}/filled-forms`);
+      const res = await apiFetch(`${API_BASE}/templates/${id}/filled-forms`);
       if (!res.ok) return;
       const json = await res.json();
       setFilledForms(json.filled_forms || []);
@@ -502,8 +507,9 @@ export default function TemplateDetail() {
   const openFilled = async (filledId) => {
     setLoadingFilled(true);
     setError(null);
+    setBatchStatus(null);
     try {
-      const res = await fetch(`${API_BASE}/filled-forms/${filledId}`);
+      const res = await apiFetch(`${API_BASE}/filled-forms/${filledId}`);
       if (!res.ok) {
         let detail = `Server responded with status: ${res.status}`;
         try {
@@ -528,7 +534,7 @@ export default function TemplateDetail() {
   const deleteFilled = async (filledId) => {
     if (!window.confirm("Delete this saved filled form?")) return;
     try {
-      const res = await fetch(`${API_BASE}/filled-forms/${filledId}`, {
+      const res = await apiFetch(`${API_BASE}/filled-forms/${filledId}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error(`Server responded with status: ${res.status}`);
@@ -543,21 +549,43 @@ export default function TemplateDetail() {
     }
   };
 
+  const pollBatchStatus = async (batchId) => {
+    try {
+      const res = await apiFetch(`${API_BASE}/batch/status/${batchId}`);
+      if (!res.ok) throw new Error("Failed to fetch batch status");
+      const statusData = await res.json();
+      setBatchStatus(statusData);
+      
+      if (statusData.status !== "completed") {
+        setTimeout(() => pollBatchStatus(batchId), 1000);
+      } else {
+        setLoadingExtract(false);
+        await loadFilledForms(); // Refresh saved forms if backend saved them
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Failed to monitor batch progress");
+      setLoadingExtract(false);
+    }
+  };
+
   const handleExtract = async () => {
-    const file = fileRef.current?.files?.[0];
-    if (!file) return;
+    const files = fileRef.current?.files;
+    if (!files || files.length === 0) return;
 
     setLoadingExtract(true);
     setError(null);
-    setResult(null);
+    setBatchStatus(null);
+    setActiveResultIdx(0);
+    
     try {
       const formData = new FormData();
-      formData.append("image", file);
       formData.append("template_id", id);
+      for (let i = 0; i < files.length; i++) {
+        formData.append("images", files[i]);
+      }
 
-      // Saving happens server-side: the extraction is stored on disk, so it
-      // survives a refresh and shows up in the "Saved Filled Forms" list.
-      const res = await fetch(`${API_BASE}/filled-forms`, {
+      const res = await apiFetch(`${API_BASE}/batch/extract`, {
         method: "POST",
         body: formData,
       });
@@ -566,20 +594,14 @@ export default function TemplateDetail() {
         try {
           const body = await res.json();
           if (body.detail) detail = body.detail;
-        } catch {
-          // ignore
-        }
+        } catch { /* ignore */ }
         throw new Error(detail);
       }
       const json = await res.json();
-      const record = json.filled_form || {};
-      setResult(record.extraction || null);
-      setLoadedFilledId(record.id || null);
-      await loadFilledForms();
+      pollBatchStatus(json.batch_id);
     } catch (err) {
       console.error("Failed to extract filled form:", err);
       setError(err.message || "Failed to extract filled form.");
-    } finally {
       setLoadingExtract(false);
     }
   };
@@ -613,9 +635,13 @@ export default function TemplateDetail() {
     );
   }
 
-  const fields = result?.fields || [];
-  const tables = result?.tables || [];
-  const overlayItems = result
+  const activeResult = batchStatus?.results?.[activeResultIdx];
+  const batchResultData = activeResult?.data || null;
+  const displayedResult = batchResultData || result;
+
+  const fields = displayedResult?.fields || [];
+  const tables = displayedResult?.tables || [];
+  const overlayItems = displayedResult
     ? buildOverlays(fields, tables, template?.fields)
     : [];
   const visibleItems = overlayItems.filter(
@@ -655,7 +681,7 @@ export default function TemplateDetail() {
         {/* Sticky preview: always-on colour-coded overlay + blank template */}
         <div>
           <div className="lg:sticky lg:top-6 flex flex-col gap-4">
-            {result?.warped_image_data_url && (
+            {displayedResult?.warped_image_data_url && (
               <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
@@ -729,9 +755,9 @@ export default function TemplateDetail() {
                     ref={wrapBoxRef}
                     className="relative inline-block align-top"
                   >
-                    <img
+                    <AuthImage
                       ref={imgBoxRef}
-                      src={result.warped_image_data_url}
+                      src={displayedResult.warped_image_data_url}
                       alt="Aligned filled form"
                       onLoad={() => setFrameTick((t) => t + 1)}
                       className="max-h-[60vh] w-auto block"
@@ -814,7 +840,7 @@ export default function TemplateDetail() {
               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">
                 Blank Form Template
               </h3>
-              <img
+              <AuthImage
                 src={`${API_BASE}/templates/${id}/image`}
                 alt={template.name}
                 className="w-full rounded border border-gray-100"
@@ -861,6 +887,7 @@ export default function TemplateDetail() {
               <input
                 ref={fileRef}
                 type="file"
+                multiple
                 accept="image/*"
                 className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
@@ -878,8 +905,24 @@ export default function TemplateDetail() {
             <p className="text-xs text-gray-400 mt-2">
               The filled copy is aligned to the template, each field's value is
               read by OCR, and the result is saved automatically so you never
-              have to re-upload after a refresh.
+              have to re-upload after a refresh. You can upload multiple forms.
             </p>
+            
+            {/* Progress Bar */}
+            {batchStatus && (
+              <div className="mt-4">
+                <div className="flex justify-between text-xs font-semibold text-gray-600 mb-1">
+                  <span>Progress ({batchStatus.completed}/{batchStatus.total})</span>
+                  <span>{Math.round((batchStatus.completed / batchStatus.total) * 100)}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div 
+                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                    style={{ width: `${(batchStatus.completed / batchStatus.total) * 100}%` }}
+                  ></div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Saved filled forms */}
@@ -953,13 +996,35 @@ export default function TemplateDetail() {
             </div>
           )}
 
-          {result && (
+          {batchStatus?.results && batchStatus.total > 1 && (
+            <div className="flex flex-wrap gap-2">
+              {batchStatus.results.map((r, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setActiveResultIdx(idx)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md border ${activeResultIdx === idx ? 'bg-blue-100 border-blue-400 text-blue-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                >
+                  {r ? r.filename : `File ${idx + 1}`}
+                  {r?.success === false && ' ❌'}
+                  {!r && ' ⏳'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {activeResult && activeResult.success === false && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+              <span className="font-bold">Extraction Error: </span> {activeResult.error}
+            </div>
+          )}
+
+          {displayedResult && (
             <div className="flex flex-col gap-4">
-              {result.alignment?.method && (
+              {displayedResult.alignment?.method && (
                 <div className="text-xs text-gray-500">
                   Alignment:{" "}
                   <span className="font-semibold">
-                    {result.alignment.method}
+                    {displayedResult.alignment.method}
                   </span>
                 </div>
               )}

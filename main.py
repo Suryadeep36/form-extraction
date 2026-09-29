@@ -3,7 +3,7 @@ import shutil
 import tempfile
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
@@ -39,11 +39,16 @@ from service.filled_form_service import (
     load_filled_form,
     delete_filled_form,
 )
+from service.auth_service import get_current_user
 
+
+from routers.batch_router import router as batch_router
+from service.batch_service import start_workers
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    start_workers()
     yield
 
 
@@ -52,24 +57,22 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
-
-
-
-app = FastAPI(
-    title="Document Extraction API",
-    version="2.0.0"
-)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        FRONTEND_URL,
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(batch_router)
 
 # ---------------------------------------------------------
 # Health check
@@ -96,8 +99,9 @@ def health_check():
 # ---------------------------------------------------------
 
 @app.post("/extract-document")
-async def extract_document(
-    image: UploadFile = File(...)
+def extract_document(
+    image: UploadFile = File(...),
+    user_id: str = Depends(get_current_user)
 ):
 
     # -----------------------------------------------------
@@ -251,6 +255,7 @@ async def extract_document(
                 # overlays are normalized against) so the dashboard renders
                 # accurate boxes. The original filename/mime are preserved.
                 response_body["document_id"] = save_document(
+                    user_id,
                     original_filename,
                     content_type,
                     doc_rep.get("processed_image_data_url"),
@@ -307,10 +312,11 @@ def _save_upload(image: UploadFile):
 
 
 @app.post("/register-template")
-async def register_form_template(image: UploadFile = File(...), name: str = ""):
+def register_form_template(image: UploadFile = File(...), name: str = Form(""), user_id: str = Depends(get_current_user)):
     image_path, filename = _save_upload(image)
     try:
-        template = register_template(image_path, name=name or None)
+        template = register_template(user_id, image_path, name=name or None)
+        template["id"] = template["template_id"]
         return {"success": True, "template": template}
     except HTTPException:
         raise
@@ -323,34 +329,35 @@ async def register_form_template(image: UploadFile = File(...), name: str = ""):
 
 
 @app.get("/templates")
-async def templates_list():
-    return {"templates": list_templates()}
+def templates_list(user_id: str = Depends(get_current_user)):
+    return {"templates": list_templates(user_id)}
 
 
 @app.get("/templates/{template_id}")
-async def templates_get(template_id: str):
-    template = load_template(template_id)
+def templates_get(template_id: str, user_id: str = Depends(get_current_user)):
+    template = load_template(user_id, template_id)
     if template is None:
         raise HTTPException(status_code=404, detail="Template not found.")
     return {"template": template}
 
 
 @app.get("/templates/{template_id}/image")
-async def templates_image(template_id: str):
-    payload = get_template_image(template_id)
+def templates_image(template_id: str, user_id: str = Depends(get_current_user)):
+    payload = get_template_image(user_id, template_id)
     if payload is None:
         raise HTTPException(status_code=404, detail="Template image not found.")
     return Response(content=payload, media_type="image/jpeg")
 
 
 @app.post("/extract-filled")
-async def extract_filled_endpoint(
+def extract_filled_endpoint(
     image: UploadFile = File(...),
     template_id: str = Form(...),
+    user_id: str = Depends(get_current_user)
 ):
     image_path, filename = _save_upload(image)
     try:
-        template = load_template(template_id, with_reference=True)
+        template = load_template(user_id, template_id, with_reference=True)
         if template is None:
             raise HTTPException(status_code=404, detail="Template not found.")
         result = extract_filled(template, image_path)
@@ -372,16 +379,17 @@ async def extract_filled_endpoint(
 # ---------------------------------------------------------
 
 @app.post("/filled-forms")
-async def filled_forms_create(
+def filled_forms_create(
     image: UploadFile = File(...),
     template_id: str = Form(...),
+    user_id: str = Depends(get_current_user)
 ):
     image_path, filename = _save_upload(image)
     try:
-        template = load_template(template_id, with_reference=True)
+        template = load_template(user_id, template_id, with_reference=True)
         if template is None:
             raise HTTPException(status_code=404, detail="Template not found.")
-        record = save_filled_form(template, image_path, source_filename=filename)
+        record = save_filled_form(user_id, template, image_path, source_filename=filename)
         return {"success": True, "filled_form": record}
     except HTTPException:
         raise
@@ -394,26 +402,26 @@ async def filled_forms_create(
 
 
 @app.get("/filled-forms")
-async def filled_forms_list(template_id: str = None):
-    return {"filled_forms": list_filled_forms(template_id)}
+def filled_forms_list(template_id: str = None, user_id: str = Depends(get_current_user)):
+    return {"filled_forms": list_filled_forms(user_id, template_id)}
 
 
 @app.get("/templates/{template_id}/filled-forms")
-async def filled_forms_list_for_template(template_id: str):
-    return {"filled_forms": list_filled_forms(template_id)}
+def filled_forms_list_for_template(template_id: str, user_id: str = Depends(get_current_user)):
+    return {"filled_forms": list_filled_forms(user_id, template_id)}
 
 
 @app.get("/filled-forms/{filled_id}")
-async def filled_forms_get(filled_id: str):
-    record = load_filled_form(filled_id)
+def filled_forms_get(filled_id: str, user_id: str = Depends(get_current_user)):
+    record = load_filled_form(user_id, filled_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Filled form not found.")
     return {"filled_form": record}
 
 
 @app.delete("/filled-forms/{filled_id}")
-async def filled_forms_delete(filled_id: str):
-    if not delete_filled_form(filled_id):
+def filled_forms_delete(filled_id: str, user_id: str = Depends(get_current_user)):
+    if not delete_filled_form(user_id, filled_id):
         raise HTTPException(status_code=404, detail="Filled form not found.")
     return {"success": True}
 
@@ -431,20 +439,20 @@ def _require_storage():
 
 
 @app.get("/documents")
-def documents_list(limit: int = 200):
+def documents_list(limit: int = 200, user_id: str = Depends(get_current_user)):
     _require_storage()
     try:
-        return {"documents": list_documents(limit)}
+        return {"documents": list_documents(user_id, limit)}
     except Exception as e:
         print(f"[STORAGE] list failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to list documents.")
 
 
 @app.get("/documents/{document_id}")
-def documents_get(document_id: str):
+def documents_get(document_id: str, user_id: str = Depends(get_current_user)):
     _require_storage()
     try:
-        record = get_document(document_id)
+        record = get_document(user_id, document_id)
     except Exception as e:
         print(f"[STORAGE] get failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to load document.")
@@ -454,10 +462,10 @@ def documents_get(document_id: str):
 
 
 @app.get("/documents/{document_id}/image")
-def documents_image(document_id: str):
+def documents_image(document_id: str, user_id: str = Depends(get_current_user)):
     _require_storage()
     try:
-        payload = get_document_file(document_id)
+        payload = get_document_file(user_id, document_id)
     except Exception as e:
         print(f"[STORAGE] image failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to load image.")
@@ -471,10 +479,10 @@ def documents_image(document_id: str):
 
 
 @app.delete("/documents/{document_id}")
-def documents_delete(document_id: str):
+def documents_delete(document_id: str, user_id: str = Depends(get_current_user)):
     _require_storage()
     try:
-        deleted = delete_document(document_id)
+        deleted = delete_document(user_id, document_id)
     except Exception as e:
         print(f"[STORAGE] delete failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete document.")

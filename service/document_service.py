@@ -248,6 +248,9 @@ def analyze_document(image_or_path, image_path=None):
 
     return doc_rep, candidates
 
+from tenacity import retry, wait_exponential, stop_after_attempt
+
+@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5))
 def interpret_document(doc_rep, candidates):
     prompt = build_structure_prompt(doc_rep, candidates)
 

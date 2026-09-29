@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { API_BASE } from '../api.js';
+import { useApi, API_BASE } from '../api.js';
+import AuthImage from '../components/AuthImage.jsx';
 
 function formatDate(iso) {
   if (!iso) return '—';
@@ -23,11 +24,12 @@ export default function Templates() {
   const [uploading, setUploading] = useState(false);
   const [uploadName, setUploadName] = useState('');
   const fileRef = useRef(null);
+  const { apiFetch } = useApi();
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/templates`);
+      const res = await apiFetch(`${API_BASE}/templates`);
       if (!res.ok) {
         let detail = `Server responded with status: ${res.status}`;
         try {
@@ -62,7 +64,7 @@ export default function Templates() {
       formData.append('image', file);
       if (uploadName.trim()) formData.append('name', uploadName.trim());
 
-      const res = await fetch(`${API_BASE}/register-template`, {
+      const res = await apiFetch(`${API_BASE}/register-template`, {
         method: 'POST',
         body: formData,
       });
@@ -159,7 +161,7 @@ export default function Templates() {
               className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow"
             >
               <div className="bg-gray-100 relative">
-                <img
+                <AuthImage
                   src={`${API_BASE}/templates/${template.id}/image`}
                   alt={template.name}
                   loading="lazy"

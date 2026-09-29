@@ -42,7 +42,7 @@ def test_template_register_extract():
     assert os.path.exists(EMPTY), f"missing {EMPTY}"
     assert os.path.exists(FILLED), f"missing {FILLED}"
 
-    template = register_template(EMPTY, name="Leave Application")
+    template = register_template("test_user_id", EMPTY, name="Leave Application")
     TEMPLATE_ID = template["template_id"]
 
     fields = template["fields"]

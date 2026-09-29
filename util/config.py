@@ -141,11 +141,6 @@ OCR_USE_WORD_BOXES = _env_bool("OCR_USE_WORD_BOXES", default=True)
 # Persistence
 # ---------------------------------------------------------------------------
 
-# PostgreSQL connection string for storing uploaded documents + extraction
-# output. When unset, document storage is disabled and /extract-document
-# simply returns the live response without saving anything.
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-
 # Directory (relative to the repo root) holding the uploaded document files.
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 
