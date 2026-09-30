@@ -49,6 +49,14 @@ def _is_field_continuation(all_segments, seg, median_text_h):
     heights, overlapping most of the full-width line's length.  These multi-row
     fields ("General nature of business ____ / ______________") must keep their
     second line as an input region instead of being dropped as a page rule.
+
+    The line above must be MATERIALLY SHORTER.  A stack of equal-length page
+    rules (a form section divided into full-width bands) also has a rule within
+    the same vertical window overlapping most of the width, so without this
+    test every section rule certifies the next one as a "continuation row" and
+    the whole stack survives as field underlines - which then swallow the
+    section's real input fields.  A genuine continuation is a short first line
+    under a long second one, never two rules of the same length.
     """
     mh = max(float(median_text_h or 0), 1.0)
     gap_max = 2.2 * mh
@@ -58,6 +66,9 @@ def _is_field_continuation(all_segments, seg, median_text_h):
             continue
         gap = seg["y"] - other["y"]
         if gap < 4 or gap > gap_max:
+            continue
+        # The row above must be a shorter field line, not a peer page rule.
+        if max(other["length"], 0.0) > 0.9 * seg_len:
             continue
         xov = min(seg["x2"], other["x2"]) - max(seg["x1"], other["x1"])
         if xov >= 0.5 * seg_len:
@@ -230,20 +241,26 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
 
     # ---- 4. blank gaps between labels -------------------------------------
     if elements:
-        for gap in _detect_blank_gaps(elements, gray):
+        for gap in _detect_blank_gaps(
+            elements, gray,
+            rules=merged,
+            checkboxes=checkboxes,
+            checkbox_group_bboxes=checkbox_group_bboxes,
+        ):
             if _inside_any_table(gap["bbox"], table_bboxes, overlap_ratio=0.45):
                 continue
             if any(_iou(gap["bbox"], cb["bbox"]) > 0.4 for cb in checkboxes):
                 continue
             if any(_intersection_over_area(gap["bbox"], gb) > 0.25 for gb in checkbox_group_bboxes):
                 continue
-            raw.append(
-                {
-                    "kind": "blank",
-                    "bbox": gap["bbox"],
-                    "confidence": 0.45,
-                }
-            )
+            entry = {
+                "kind": "blank",
+                "bbox": gap["bbox"],
+                "confidence": 0.45,
+            }
+            if gap.get("ruled"):
+                entry["ruled"] = True
+            raw.append(entry)
 
 # ---- absorb underline/caption lines into their enclosing box ----------
     # A printed box's borders are horizontal lines too, so the underline pass
@@ -320,6 +337,10 @@ def detect_input_regions(image_or_gray, elements=None, table_bboxes=None, checkb
             entry["grid_label"] = region.get("grid_label")
             entry["grid_label_bbox"] = region.get("grid_label_bbox")
             entry["grid_continuations"] = region.get("grid_continuations")
+        if region.get("ruled"):
+            # Blank enclosed by printed rules: a drawn writing area, so the
+            # template builder accepts its bare (colon-less) caption.
+            entry["ruled"] = True
         if region.get("label"):
             entry["label"] = region["label"]
             entry["label_bbox"] = region.get("label_bbox") or region["bbox"]
@@ -680,7 +701,43 @@ def _band_contains_text(top, bottom, elements):
     return False
 
 
-def _detect_blank_gaps(elements, gray, gap_ratio=0.012):
+def _rule_band(y1, y2, rules, tol=8):
+    """(top, bottom, right) of the printed band of horizontal rules enclosing
+    the vertical span [y1, y2], or None when the span is not rule-bounded."""
+    top = None
+    bottom = None
+    right = None
+    for r in rules or []:
+        y = r["y"]
+        if y <= y1 + tol and (top is None or y > top[0]):
+            top = (y, r["x2"])
+        if y >= y2 - tol and (bottom is None or y < bottom[0]):
+            bottom = (y, r["x2"])
+    if not top or not bottom or bottom[0] - top[0] <= 0:
+        return None
+    # The band's printed right edge: the narrower of the two bounding rules.
+    right = min(top[1], bottom[1])
+    return top[0], bottom[0], right
+
+
+def _label_is_checkbox_option(el, checkboxes, checkbox_group_bboxes, tol=4.0):
+    """True when `el` is one of a checkbox group's option labels (so the blank
+    run after it belongs to the group, not to a new field)."""
+    bb = el.get("bbox")
+    if not bb or len(bb) != 4:
+        return False
+    for cb in checkboxes or []:
+        c = cb.get("bbox")
+        if c and bb[0] - tol <= c[0] and bb[1] - tol <= c[1] and bb[2] + tol >= c[2] and bb[3] + tol >= c[3]:
+            return True
+    for gb in checkbox_group_bboxes or []:
+        if gb[0] - tol <= bb[0] and gb[1] - tol <= bb[1] and gb[2] + tol >= bb[2] and gb[3] + tol >= bb[3]:
+            return True
+    return False
+
+
+def _detect_blank_gaps(elements, gray, gap_ratio=0.012, rules=None,
+                       checkboxes=None, checkbox_group_bboxes=None):
     """
     Turn large blank gaps between printed labels on the same row into
     implicit input regions.
@@ -689,6 +746,18 @@ def _detect_blank_gaps(elements, gray, gap_ratio=0.012):
     between them is both large and free of ink, the gap is an input region.
     This reproduces behaviours like "Date: ____ Place: ____" even when the
     blanks are too faint for line detection.
+
+    Two additions cover the banded "label ....... label" layout used by
+    boxed form sections (PERSONAL INFORMATION: Full Name | Nationality,
+    Phone | Email | DoB, ...):
+
+      * the between-label cap is 60% of the page width, not 45%, because a
+        section split into two wide columns leaves a gap wider than 45% that
+        is still a genuine single input area;
+      * a TRAILING run after the last label of a rule-bounded band is also a
+        region ("Nationality ______" reaching the band's right border).  It is
+        only emitted when the band is closed by printed rules, and never after
+        a checkbox option label, whose remainder belongs to its group.
     """
     h, w = gray.shape
     rows = []
@@ -712,7 +781,7 @@ def _detect_blank_gaps(elements, gray, gap_ratio=0.012):
             gap = b["bbox"][0] - a["bbox"][2]
             if gap < min_gap:
                 continue
-            if gap > w * 0.45:
+            if gap > w * 0.60:
                 continue  # too large to be a field
 
             x1 = int(round(a["bbox"][2]))
@@ -747,8 +816,52 @@ def _detect_blank_gaps(elements, gray, gap_ratio=0.012):
                 {
                     "bbox": [float(x1), float(y1), float(x2), float(y2)],
                     "confidence": 0.5,
+                    # A gap enclosed by printed rules is a drawn writing area,
+                    # not incidental whitespace between two labels.
+                    "ruled": _rule_band(
+                        min(a["bbox"][1], b["bbox"][1]),
+                        max(a["bbox"][3], b["bbox"][3]),
+                        rules,
+                    ) is not None,
                 }
             )
+
+        # ---- trailing run bounded by the band's printed right border ----
+        # Only on a MULTI-label row.  A lone printed string in a rule-bounded
+        # band is a section title ("PERSONAL INFORMATION", "EDUCATIONAL
+        # BACKGROUND"), and the blank to its right is the heading's own line,
+        # not an input area; a single-label band like "ADDRESS" is already
+        # covered by its own box/grid cell.
+        if len(items) < 2 or not rules:
+            continue
+        last = items[-1]
+        if _label_is_checkbox_option(last, checkboxes, checkbox_group_bboxes):
+            continue
+        band = _rule_band(last["bbox"][1], last["bbox"][3], rules)
+        if not band:
+            continue
+        band_top, band_bottom, right = band
+        x1 = int(round(last["bbox"][2]))
+        x2 = int(round(right))
+        if x2 - x1 < min_gap:
+            continue
+        y1 = int(round(last["bbox"][1] - 4))
+        y2 = int(round(last["bbox"][3] + 4))
+        # The run must stay inside its band.
+        if y1 < band_top - 8 or y2 > band_bottom + 8:
+            continue
+        strip = gray[max(0, y1) : y2, max(0, x1) : x2]
+        if strip.size == 0:
+            continue
+        if float(np.mean(_threshold_gray(strip) > 0)) > 0.05:
+            continue
+        gaps.append(
+            {
+                "bbox": [float(x1), float(y1), float(x2), float(y2)],
+                "confidence": 0.45,
+                "ruled": True,
+            }
+        )
 
     return gaps
 

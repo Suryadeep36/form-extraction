@@ -40,6 +40,7 @@ from service.filled_form_service import (
     delete_filled_form,
 )
 from service.auth_service import get_current_user
+from service import blob_store
 
 
 from routers.batch_router import router as batch_router
@@ -47,6 +48,7 @@ from service.batch_service import start_workers
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    print(blob_store.log_status())
     init_db()
     start_workers()
     yield
@@ -82,7 +84,8 @@ app.include_router(batch_router)
 def health_check():
     return {
         "status": "ok",
-        "service": "Document Extraction API"
+        "service": "Document Extraction API",
+        "storage": blob_store.describe(),
     }
 
 
@@ -298,7 +301,8 @@ def extract_document(
 # Pass 1: register an EMPTY form -> build a template (field labels + value
 #         regions). Pass 2: extract KV pairs from a FILLED form of the same
 #         layout by warping it onto the template via homography alignment.
-# Templates are stored as JSON + reference JPEG under uploads/templates/.
+# Templates are stored as JSON + reference JPEG via service/blob_store.py
+# (S3 in cloud mode, LOCAL_STORAGE_DIR/templates/ in local mode).
 # ---------------------------------------------------------
 
 def _save_upload(image: UploadFile):
@@ -373,7 +377,7 @@ def extract_filled_endpoint(
 
 
 # ---------------------------------------------------------
-# Saved FILLED forms (file-backed, so a filled form does not
+# Saved FILLED forms (persisted, so a filled form does not
 # need re-uploading after refresh — it is stored + reopened
 # like the empty templates above).
 # ---------------------------------------------------------
@@ -434,7 +438,10 @@ def _require_storage():
     if not storage_enabled():
         raise HTTPException(
             status_code=503,
-            detail="Document storage is disabled (DATABASE_URL not set).",
+            detail=(
+                "Document storage is disabled. Set STORAGE_MODE=local with a "
+                "LOCAL_DATABASE_URL, or STORAGE_MODE=cloud to use S3."
+            ),
         )
 
 

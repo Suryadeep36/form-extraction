@@ -40,14 +40,14 @@ from util.template_utils import (
     build_template_tables,
     find_label_anchor,
 )
-from util.config import UPLOAD_DIR
-from service.s3_service import upload_to_s3, download_from_s3, list_from_s3
-
-TEMPLATES_DIR = os.path.join(UPLOAD_DIR, "templates")
+from service.blob_store import put_blob, get_blob, list_blobs
 
 
 # ---------------------------------------------------------------------------
-# Persistence (file-based, no DB dependency)
+# Persistence
+#
+# Backed by whichever store STORAGE_MODE selects: S3 in cloud mode, files
+# under LOCAL_STORAGE_DIR in local mode. See service/blob_store.py.
 # ---------------------------------------------------------------------------
 
 def _json_safe(obj):
@@ -66,51 +66,39 @@ def _json_safe(obj):
         return bool(obj)
     return obj
 
-def _templates_dir():
-    os.makedirs(TEMPLATES_DIR, exist_ok=True)
-    return TEMPLATES_DIR
-
-
-def _template_path(template_id):
-    return os.path.join(_templates_dir(), f"{template_id}.json")
-
-
-def _reference_path(template_id):
-    return os.path.join(_templates_dir(), f"{template_id}_ref.jpg")
-
 
 def save_template(user_id, template):
-    """Persist a template dict + its reference image to S3. Returns template_id."""
+    """Persist a template dict + its reference image. Returns template_id."""
     template_id = template.get("id") or str(uuid.uuid4())
     template["id"] = template_id
     ref_image = template.pop("reference_image", None)
-    
+
     meta = {k: v for k, v in template.items() if k != "reference_image"}
     meta_json = json.dumps(meta, indent=2).encode('utf-8')
-    
-    upload_to_s3(user_id, "templates", f"{template_id}.json", meta_json, "application/json")
-    
+
+    put_blob(user_id, "templates", f"{template_id}.json", meta_json, "application/json")
+
     if ref_image is not None:
         ok, buf = cv2.imencode(".jpg", ref_image)
         if ok:
-            upload_to_s3(user_id, "templates", f"{template_id}_ref.jpg", buf.tobytes(), "image/jpeg")
-            
+            put_blob(user_id, "templates", f"{template_id}_ref.jpg", buf.tobytes(), "image/jpeg")
+
     return template_id
 
 
 def load_template(user_id, template_id, with_reference=False):
-    meta_bytes = download_from_s3(user_id, "templates", f"{template_id}.json")
+    meta_bytes = get_blob(user_id, "templates", f"{template_id}.json")
     if not meta_bytes:
         return None
-        
+
     template = json.loads(meta_bytes)
-    
+
     if with_reference:
-        ref_bytes = download_from_s3(user_id, "templates", f"{template_id}_ref.jpg")
+        ref_bytes = get_blob(user_id, "templates", f"{template_id}_ref.jpg")
         if ref_bytes:
             nparr = np.frombuffer(ref_bytes, np.uint8)
             template["reference_image"] = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            
+
     return template
 
 
@@ -119,23 +107,24 @@ def get_template_image(user_id, template_id):
     Raw bytes of a template's reference (preprocessed blank-form) image, or
     None when the template does not exist / has no stored image.
     """
-    meta_bytes = download_from_s3(user_id, "templates", f"{template_id}.json")
+    meta_bytes = get_blob(user_id, "templates", f"{template_id}.json")
     if not meta_bytes:
         return None
-        
-    return download_from_s3(user_id, "templates", f"{template_id}_ref.jpg") or None
+
+    return get_blob(user_id, "templates", f"{template_id}_ref.jpg") or None
 
 
 def list_templates(user_id):
-    keys = list_from_s3(user_id, "templates")
+    keys = list_blobs(user_id, "templates")
     out = []
     for key in sorted(keys):
         if not key.endswith(".json"):
             continue
         try:
-            # key is like "user_id/templates/abc.json"
+            # key is like "user_id/templates/abc.json" (or "templates/abc.json"
+            # in flat local mode)
             file_id = key.split("/")[-1]
-            meta_bytes = download_from_s3(user_id, "templates", file_id)
+            meta_bytes = get_blob(user_id, "templates", file_id)
             if meta_bytes:
                 t = json.loads(meta_bytes)
                 out.append({

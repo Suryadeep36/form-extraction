@@ -244,9 +244,11 @@ def _is_selection_box(bin_img, x, y, w, h):
     rejects boxed text and graphic counters while keeping every thin ring.
 
     The 1-px rim test only fires for a window that hugs the ring exactly.  A
-    hole-derived window is deliberately a hair larger than the ring it came
-    from, so its 1-px rim lands in blank margin; the scaled side-bands catch
-    that case instead (all four bands dark for a ring, never for a lone line).
+    window derived from a hole contour also hugs it (the hole contour traces the
+    ring's inner edge), which is why the hole pass tries the un-padded bbox
+    first; a window padded by a guessed rim thickness lands in blank margin on
+    every side, where neither this rim test nor the scaled side-bands can
+    recover the ring.
     Returns True/False.
     """
     r = _ring_density(bin_img, x, y, x + w, y + h)
@@ -372,24 +374,38 @@ def _checkbox_candidates(
             hx, hy, hw2, hh2 = cv2.boundingRect(hole)
             if hw2 < 5 or hh2 < 5:
                 continue
+            # A CCOMP hole contour traces the ring's INNER edge, so its bbox is
+            # already the true ring window: a 1-px boundary sample lands on the
+            # rim and reads fully dark.  Padding it by a guessed rim thickness
+            # can push the WHOLE window out into blank margin, where BOTH the
+            # 1-px rim test and the scaled side-band test read light and the
+            # ring is lost.  That is what erased every checkbox on forms whose
+            # rules/underlines fuse all rings into one giant connected
+            # component (so the contour pass cannot bound them) - e.g. the
+            # mobile-capture dealer form, where the one surviving ring window
+            # went 62x62 with edge_dark 0.0 and bands 0.19 while the 50x50 true
+            # window scored edge_dark 1.0.  Try the true window first and keep
+            # the padded one only as a fallback for rings the hole contour
+            # under-reports.
             ring = max(3, min(8, int(round(min(hw2, hh2) * 0.12))))
-            x, y = hx - ring, hy - ring
-            cw, ch = hw2 + 2 * ring, hh2 + 2 * ring
-            if not _accept(x, y, cw, ch):
-                continue
-            # Dedupe against the contour-pass candidates (same ring twice).
-            if any(
-                abs(c["center"][0] - (x + cw / 2.0)) <= max(2.0, 0.4 * min(c["width"], float(cw)))
-                and abs(c["center"][1] - (y + ch / 2.0)) <= max(2.0, 0.4 * min(c["height"], float(ch)))
-                for c in cands
-            ):
-                continue
-            cands.append({
-                "bbox": [float(x), float(y), float(x + cw), float(y + ch)],
-                "width": float(cw),
-                "height": float(ch),
-                "center": [x + cw / 2.0, y + ch / 2.0],
-            })
+            for pad in (0, ring):
+                x, y = hx - pad, hy - pad
+                cw, ch = hw2 + 2 * pad, hh2 + 2 * pad
+                if not _accept(x, y, cw, ch):
+                    continue
+                # Dedupe against the contour-pass candidates (same ring twice).
+                if not any(
+                    abs(c["center"][0] - (x + cw / 2.0)) <= max(2.0, 0.4 * min(c["width"], float(cw)))
+                    and abs(c["center"][1] - (y + ch / 2.0)) <= max(2.0, 0.4 * min(c["height"], float(ch)))
+                    for c in cands
+                ):
+                    cands.append({
+                        "bbox": [float(x), float(y), float(x + cw), float(y + ch)],
+                        "width": float(cw),
+                        "height": float(ch),
+                        "center": [x + cw / 2.0, y + ch / 2.0],
+                    })
+                break
 
     return cands
 

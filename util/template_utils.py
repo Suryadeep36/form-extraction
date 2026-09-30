@@ -416,6 +416,15 @@ def _label_for_region(region, elements, median_text_h, exclude_texts=None):
             if region.get("kind") == "box":
                 row_hit = y1 <= cy <= y2
                 d_cap = max(max_dist, min(30 * mh, 650))
+            elif region.get("kind") == "blank":
+                # A blank run is a same-LINE writing area (the gap to the right
+                # of "Phone:", the remainder after "Nationality" inside a ruled
+                # band), so its label sits vertically INSIDE the run rather
+                # than above it.  The underline test below would reject every
+                # such label, leaving Phone / Email / DoB / Full Name /
+                # Nationality unlabelled and dropped from the template.
+                row_hit = y1 - 0.5 * mh <= cy <= y2 + 0.5 * mh
+                d_cap = max_dist
             else:
                 row_hit = eb[3] <= y1 + 1.15 * mh
                 d_cap = max_dist
@@ -856,8 +865,13 @@ def build_template_fields(doc_rep, image_width, image_height):
         # may also be "Total Marks Obtained: Out of"). A blank without any ":"
         # is layout whitespace (e.g. the gap between the printed "Signature of
         # Applicant" and "Date" labels), not a writable field, so drop it.
+        #
+        # `ruled` blanks are the exception: the form drew a closed horizontal
+        # band around them, so the blank IS the printed writing area and its
+        # label is a bare caption ("Full Name", "Nationality", "DoB", "Years
+        # of work", "Marital Status" - boxed sections that print no colons).
         if kind == "blank":
-            if ":" not in label_info["text"]:
+            if ":" not in label_info["text"] and not region.get("ruled"):
                 continue
             # Never let a blank shadow a real underline/box for the same label.
             if _norm_label(label_info["text"]) in structured_labels:

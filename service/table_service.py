@@ -22,6 +22,7 @@ from util.table_utils import (
     detect_table_candidates,
     build_cv_structure,
 )
+from util.line_utils import detect_line_segments, merge_collinear_horizontal
 from service.table_model_service import (
     get_table_model_service,
 )
@@ -311,6 +312,11 @@ def detect_and_fuse_tables(image, elements):
 
     # ---- CV detection (runs as baseline truth for structural cross-referencing)
     cv_candidates = detect_table_candidates(image, elements=elements)
+
+    # ---- Page rules, shared by FILTER 4 in both branches -------------------
+    horizontals = merge_collinear_horizontal(
+        detect_line_segments(image, orientation="horizontal", min_length_ratio=0.20)
+    )
     
     # ---- Model detection -------------------------------------------
     model_candidates = []
@@ -387,6 +393,19 @@ def detect_and_fuse_tables(image, elements):
                 )
                 continue
 
+            # FILTER 4: labelled form rows are not a data table.
+            # A blank data-entry table prints its column headers once and
+            # leaves the rest of its bands empty; a form section prints a
+            # label in EVERY band.  Keeping the latter hides the section's real
+            # input fields inside empty table cells.
+            is_stack, why = _is_label_value_stack(bbox, horizontals, elements)
+            if is_stack:
+                print(
+                    f"[TABLE FILTER] Dropped ML label/value stack "
+                    f"({why}): {bbox}"
+                )
+                continue
+
             # If it survives the filters, it is a legitimate table
             final_candidates.append({
                 "bbox": _clamp_bbox(bbox, width, height),
@@ -435,6 +454,15 @@ def detect_and_fuse_tables(image, elements):
                 )
                 continue
             
+            # FILTER 4 (labelled form rows), same as the model branch.
+            is_stack, why = _is_label_value_stack(bbox, horizontals, elements)
+            if is_stack:
+                print(
+                    f"[TABLE FILTER] Dropped CV label/value stack "
+                    f"({why}): {bbox}"
+                )
+                continue
+
             final_candidates.append({
                 "bbox": _clamp_bbox(bbox, width, height),
                 "confidence": round(cv.get("confidence", 0.5), 4),
@@ -721,6 +749,61 @@ def _is_single_column_stack(cv_candidate):
     n_vertical = cv_candidate.get("n_vertical", 0) or 0
     n_horizontal = cv_candidate.get("n_horizontal", 0) or 0
     return n_vertical <= 2 and n_horizontal >= 3
+
+
+def _band_text_occupancy(bbox, horizontals, elements, tol=4):
+    """How many rule-bounded row bands of `bbox` carry printed text.
+
+    Returns (text_bearing, total).  Bands are the spans BETWEEN consecutive
+    horizontal rules that fall inside the bbox; the slivers above the first and
+    below the last rule are ignored because a candidate bbox is not always
+    rule-aligned.
+    """
+    ys = sorted({
+        float(h["y"]) for h in (horizontals or [])
+        if bbox[1] - tol <= h["y"] <= bbox[3] + tol
+    })
+    if len(ys) < 2:
+        return 0, 0
+    bearing = 0
+    for y1, y2 in zip(ys[:-1], ys[1:]):
+        for el in elements or []:
+            if el.get("type") not in (None, "text") or not el.get("bbox"):
+                continue
+            cy = (el["bbox"][1] + el["bbox"][3]) / 2.0
+            if y1 - 6 <= cy <= y2 + 6:
+                bearing += 1
+                break
+    return bearing, len(ys) - 1
+
+
+def _is_label_value_stack(bbox, horizontals, elements):
+    """FILTER 4 - reject a "table" that is really a stack of labelled form rows.
+
+    A blank data-entry table prints its column HEADERS once and then leaves the
+    remaining row bands empty for handwriting, so its rules enclose at least
+    one completely blank band.  A form section built from labelled rows
+    (PERSONAL INFORMATION: Full Name / Nationality, Address, Phone / Email /
+    DoB, Driving License, Marital Status) prints a label in EVERY band, and so
+    does a single option row (Full-Time / Part-Time / Contract).
+
+    Neither is tabular data, and keeping them turns every input field in the
+    section into an empty table cell, which is what hides the form's real
+    fields.  Reject both shapes:
+
+      * fewer than two rule-bounded bands - a lone option row has no data row;
+      * three or more bands and NOT ONE of them blank - every band is a
+        printed label, i.e. a field stack.
+
+    `horizontals` is the page's detected horizontal rules (see
+    `util.line_utils.detect_line_segments` / `merge_collinear_horizontal`).
+    """
+    bearing, total = _band_text_occupancy(bbox, horizontals, elements)
+    if total < 2:
+        return True, f"no data row (bands={total})"
+    if total >= 3 and bearing == total:
+        return True, f"every band is a printed label ({bearing}/{total})"
+    return False, f"bands {bearing}/{total} carry text"
 
 
 def _clip_phantom_cells(cells, table_bbox):

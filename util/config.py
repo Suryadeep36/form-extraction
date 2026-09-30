@@ -145,6 +145,53 @@ OCR_USE_WORD_BOXES = _env_bool("OCR_USE_WORD_BOXES", default=True)
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 
 # ---------------------------------------------------------------------------
+# Storage mode
+# ---------------------------------------------------------------------------
+# The one switch that picks where files and document rows live:
+#
+#   cloud -> blobs in S3, no relational DB (document records are JSON in S3).
+#   local -> blobs on disk under LOCAL_STORAGE_DIR + a local relational DB.
+#
+# Nothing else in the codebase branches on this value; every storage call goes
+# through service/blob_store.py and service/db_service.py.
+STORAGE_MODE = (os.getenv("STORAGE_MODE") or "cloud").strip().lower()
+
+# Root directory for local-mode blobs. Defaults to UPLOAD_DIR so the layout
+# matches the pre-cloud one: <root>/documents, <root>/templates,
+# <root>/filled_forms.
+LOCAL_STORAGE_DIR = os.getenv("LOCAL_STORAGE_DIR", UPLOAD_DIR)
+
+# When true, local blobs are namespaced per user
+# (<root>/<user_id>/<prefix>/<file_id>), matching the S3 key layout. When
+# false (default) the flat <root>/<prefix>/<file_id> layout is used so files
+# written by the earlier file-backed version stay readable.
+LOCAL_STORAGE_USER_SCOPE = _env_bool("LOCAL_STORAGE_USER_SCOPE", default=False)
+
+# Relational database used in local mode. Supported DSNs:
+#   sqlite:///form_extract.db      zero-dependency default
+#   postgresql://user:pass@host/db local Postgres
+# Relative sqlite paths are resolved against the repo root, not the CWD, so
+# the server behaves the same no matter where uvicorn is started from.
+LOCAL_DATABASE_URL = os.getenv("LOCAL_DATABASE_URL", "sqlite:///data/form_extract.db")
+
+# Absolute path of the repo root (the directory holding util/, service/, ...).
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def local_dir(*parts) -> str:
+    """Absolute path inside LOCAL_STORAGE_DIR, created on demand."""
+    path = os.path.abspath(os.path.join(LOCAL_STORAGE_DIR, *parts))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def resolve_sqlite_path(path: str) -> str:
+    """Make a sqlite DSN path absolute against the repo root when relative."""
+    if not os.path.isabs(path):
+        return os.path.join(REPO_ROOT, path)
+    return path
+
+# ---------------------------------------------------------------------------
 # Observability / debugging
 # ---------------------------------------------------------------------------
 

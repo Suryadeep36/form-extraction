@@ -1,7 +1,13 @@
 fastapi
 uvicorn
 python-multipart
+# Reads .env so STORAGE_MODE and the local storage settings are picked up.
+python-dotenv
+# Cloud mode blob storage.
 boto3
+# Local mode: only needed when LOCAL_DATABASE_URL points at PostgreSQL
+# (sqlite needs no driver).
+psycopg
 PyJWT
 google-genai
 groq
