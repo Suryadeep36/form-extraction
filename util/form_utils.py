@@ -783,6 +783,13 @@ def _detect_blank_gaps(elements, gray, gap_ratio=0.012, rules=None,
                 continue
             if gap > w * 0.60:
                 continue  # too large to be a field
+            # A gap touching a checkbox OPTION is that option's own space, not
+            # a text field.  In a boxed section the room beside "Yes," / "No" /
+            # "Single" belongs to the option question, and turning it into a
+            # field duplicates (and mislabels) the checkbox group.
+            if _label_is_checkbox_option(a, checkboxes, checkbox_group_bboxes) or \
+                    _label_is_checkbox_option(b, checkboxes, checkbox_group_bboxes):
+                continue
 
             x1 = int(round(a["bbox"][2]))
             x2 = int(round(b["bbox"][0]))

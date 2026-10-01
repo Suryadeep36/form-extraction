@@ -413,6 +413,13 @@ def _label_for_region(region, elements, median_text_h, exclude_texts=None):
         # widen the distance cap, since a short printed label may end well
         # before the box's left edge.
         if cy >= y1 - 1.5 * mh and eb[2] <= x1 + tol:
+            # ...except for a checkbox group, whose question label rides the
+            # group's OWN first row.  The looser 1.5*h bound reaches a full row
+            # up, letting the previous row's question borrow this group's label
+            # (a vertically stacked "Marital Status" group under a "Driving
+            # License" row picked up "Driving License").  Pin it to the row.
+            if region.get("kind") == "checkbox_group" and cy < y1 - 0.5 * mh:
+                continue
             if region.get("kind") == "box":
                 row_hit = y1 <= cy <= y2
                 d_cap = max(max_dist, min(30 * mh, 650))
@@ -1001,6 +1008,15 @@ def build_template_fields(doc_rep, image_width, image_height):
     # parent label comes from the shared `_label_for_region` on the group's
     # macro-box (searches Left then Up exactly like any other field).
     groups = doc_rep.get("checkbox_groups") or []
+    # No group's question label is ever another group's option text.  Excluding
+    # every option stops a vertically adjacent group from borrowing the row
+    # above it -- e.g. "Marital Status: Single/Married" being labelled "Yes,"
+    # from the Driving License row directly above it.
+    all_option_texts = {
+        o.get("text", "").strip().lower()
+        for g in groups
+        for o in (g.get("options") or [])
+    } or None
     unnamed_idx = 0
     for group in groups:
         gb = group.get("bbox")
@@ -1008,8 +1024,7 @@ def build_template_fields(doc_rep, image_width, image_height):
             continue
         label_info = _label_for_region(
             {"bbox": gb, "kind": "checkbox_group"}, elements, median_text_h,
-            exclude_texts={o.get("text", "").strip().lower()
-                           for o in (group.get("options") or [])} or None,
+            exclude_texts=all_option_texts,
         )
         label = ""
         label_bbox = None

@@ -9,6 +9,7 @@ kept separate from ordinary `regions` and from `fields`.
 import numpy as np
 import cv2
 import os
+import re
 
 import util.config as config
 from util.geometry_utils import (
@@ -646,6 +647,128 @@ def detect_and_fuse_tables(image, elements):
 #     print(f"[OCR-CELL] Tables processed: {len(tables)}")
 #     return tables
 
+def _header_column_clusters(elements, row_bbox, median_text_h):
+    """
+    Group the printed text of a table's header row into one x-interval per
+    printed column.
+
+    Two labels belong to the same column when their x-ranges touch or overlap,
+    which is what a header wrapped over two printed lines looks like
+    ("Year of" over "Graduate").  Labels printed side by side never overlap, so
+    they stay separate.
+    """
+    x1, y1, x2, y2 = [float(v) for v in row_bbox]
+    band = 0.5 * max(float(median_text_h or 0), 10.0)
+    spans = []
+    for el in elements:
+        b = el.get("bbox")
+        if not b or len(b) != 4:
+            continue
+        text = (el.get("text") or "").strip()
+        if len(text) < 2 or not re.search(r"[A-Za-z0-9\u00C0-\u024F]", text):
+            continue
+        cy = (b[1] + b[3]) / 2.0
+        if not (y1 - band <= cy <= y2 + band):
+            continue
+        if b[2] <= x1 + 1 or b[0] >= x2 - 1:
+            continue
+        # Cluster against the label's own extent, NOT the drawn cell's: the
+        # point of this pass is that a drawn cell spans several labels.
+        spans.append([float(b[0]), float(b[2])])
+    if not spans:
+        return []
+    spans.sort()
+    clusters = []
+    for a, b in spans:
+        if clusters and a <= clusters[-1][1]:
+            clusters[-1][1] = max(clusters[-1][1], b)
+        else:
+            clusters.append([a, b])
+    return clusters
+
+
+def _refine_columns_from_header(cells, elements, bbox, median_text_h):
+    """
+    Re-derive a table's column boundaries from its header text.
+
+    Many printed forms rule their grid for FILING, not for the header: the
+    vertical rules land wherever the boxes below need them and routinely cut
+    straight through a header label, so a five-column header reads back as one
+    cell with all five labels concatenated ("Year of Degree / Course University
+    / Institute Grade City Graduate").  The header's own label spacing is the
+    only faithful statement of the column layout, so prefer it.
+
+    This only ever SPLITS -- if the header does not clearly subdivide the drawn
+    grid the ruled structure is left untouched, so a table whose rules already
+    match its header is unaffected.
+    """
+    if not cells:
+        return cells
+    rows = {}
+    for c in cells:
+        rows.setdefault(c.get("row", 0), []).append(c)
+    if len(rows) < 2:
+        return cells  # a single band is a field block, not a column grid
+    n_cols = max((c.get("column", 0) for c in cells), default=0) + 1
+    tx1, _ty1, tx2, _ty2 = [float(v) for v in bbox]
+    # Collect header labels across the WHOLE table width, not inside the first
+    # drawn cell.  A merged cell spans several labels by construction, so
+    # scoping the search to one cell's x-range would only ever see its own
+    # label and never find a split.
+    top_row = min(rows)
+    y_lo = min(c["bbox"][1] for c in rows[top_row])
+    y_hi = max(c["bbox"][3] for c in rows[top_row])
+    clusters = _header_column_clusters(
+        elements, [tx1, y_lo, tx2, y_hi], median_text_h
+    )
+    if len(clusters) <= n_cols:
+        return cells
+    # Every gap must be a real column gutter.  A phrase printed continuously
+    # ("Skill & Training Achievement(s)") arrives as one wide block, and a form
+    # with no clear gutter anywhere must not be chopped up.
+    min_gap = 0.9 * max(float(median_text_h or 0), 10.0)
+    if any(
+        clusters[i + 1][0] - clusters[i][1] < min_gap
+        for i in range(len(clusters) - 1)
+    ):
+        return cells
+
+    tx1, _ty1, tx2, _ty2 = [float(v) for v in bbox]
+    # Split at the gutter MIDPOINT, but never inside a label or outside the
+    # table's own extent.
+    bounds = [tx1]
+    for i in range(len(clusters) - 1):
+        mid = (clusters[i][1] + clusters[i + 1][0]) / 2.0
+        bounds.append(min(max(mid, clusters[i][1] + 1.0), clusters[i + 1][0] - 1.0))
+    bounds.append(tx2)
+
+    # Preserve every drawn ROW extent separately: rows of the same grid can be
+    # different heights, and reusing whichever cell happened to be first would
+    # flatten them all onto one band.
+    row_span = {}
+    for r, cs in rows.items():
+        row_span[r] = [
+            min(c["bbox"][1] for c in cs),
+            max(c["bbox"][3] for c in cs),
+        ]
+
+    refined = []
+    for r in sorted(rows):
+        ry1, ry2 = row_span[r]
+        for ci in range(len(clusters)):
+            refined.append({
+                # Carry the original cell's identity: OCR assignment keys off
+                # `id`, and a header-derived cell replaces one drawn cell.
+                "id": rows[r][min(ci, len(rows[r]) - 1)]["id"],
+                "row": r,
+                "column": ci,
+                "bbox": [bounds[ci], ry1, bounds[ci + 1], ry2],
+            })
+    for n, c in enumerate(refined):
+        c["id"] = f"{c['id']}_h{n}"
+    return refined
+
+
 def finalize_tables(fused, doc_rep, image):
     """
     Stage 2: Hybrid Extraction.
@@ -701,7 +824,23 @@ def finalize_tables(fused, doc_rep, image):
 
             print(f"[TABLE-STRUCTURE] table_{i:03d} cells: {len(cells)} (source=hybrid_ml_cv)")
 
-        # 4. Assign OCR strictly within this clamped geometry
+        # 4. Prefer the header's own label spacing for the column layout.
+        heights = [
+            (e["bbox"][3] - e["bbox"][1]) for e in elements
+            if e.get("bbox") and len(e["bbox"]) == 4
+            and (e["bbox"][3] - e["bbox"][1]) > 0
+        ]
+        median_text_h = float(np.median(heights)) if heights else 20.0
+        before_cols = max((c.get("column", 0) for c in cells), default=0) + 1
+        cells = _refine_columns_from_header(cells, elements, ml_bbox, median_text_h)
+        after_cols = max((c.get("column", 0) for c in cells), default=0) + 1
+        if after_cols != before_cols:
+            print(
+                f"[TABLE-HEADER-COLS] table_{i:03d} cols {before_cols} -> "
+                f"{after_cols} from header labels"
+            )
+
+        # 5. Assign OCR strictly within this clamped geometry
         _assign_ocr_to_cells(elements, cells, ml_bbox)
 
         tables.append(

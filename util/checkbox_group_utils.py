@@ -64,6 +64,7 @@ from util.checkbox_utils import (
     _classify_window,
     strip_leading_option_mark,
 )
+from util.line_utils import detect_line_segments, merge_collinear_horizontal
 
 
 def _ring_density(bin_img, x1, y1, x2, y2, band_frac=0.16):
@@ -483,7 +484,7 @@ def _bind_options(checkboxes, elements, median_text_h):
 # Stage 3 - spatial clustering into option groups
 # ---------------------------------------------------------------------------
 
-def _cluster_options(pairs, median_text_h, page_width):
+def _cluster_options(pairs, median_text_h, page_width, rules=None):
     """Union-find over bound pairs.
 
     Two different kinds of adjacency are judged with two different vertical
@@ -541,6 +542,17 @@ def _cluster_options(pairs, median_text_h, page_width):
                 # under distinct sub-questions).
                 if pairs[i]["text"] and pairs[i]["text"] == pairs[j]["text"]:
                     continue
+                # ...and never two rows the form has ruled apart.  Each option
+                # row of a boxed section ("Driving License [ ] No [ ] Yes" and
+                # "Marital Status [ ] Single [ ] Married") is closed by its own
+                # printed rule, so the rule between them means two questions.
+                # Without this the vertically-stacked, x-overlapping boxes fuse
+                # and the merged group borrows one question's label.
+                upper, lower = (
+                    (a_box, b_box) if a_box[1] <= b_box[1] else (b_box, a_box)
+                )
+                if _printed_rule_between(upper, lower, rules):
+                    continue
                 if vgap <= row_band:
                     union(i, j)
                 continue
@@ -566,7 +578,45 @@ def _group_macro_bbox(group):
     ]
 
 
-def _merge_same_question_rows(clusters, wrap_band):
+def _printed_rule_between(upper, lower, rules, tol=6.0, cover=0.6):
+    """True when a printed horizontal rule separates two stacked option rows.
+
+    A form that draws each question inside its own ruled band - "Driving
+    License  [ ] No  [ ] Yes" in one box, "Marital Status  [ ] Single  [ ]
+    Married" in the box below - prints a full-width rule BETWEEN the two rows.
+    That rule is the form telling us these are two separate questions, so the
+    rows must not be fused into one option group (which would hand the merged
+    group whichever label is nearest and lose a real field).
+
+    The rule must lie in the vertical gap between the two clusters and span
+    most of the columns their checkboxes share, so a short tick, a leader line
+    or an unrelated rule elsewhere on the page never splits a genuine wrapped
+    question.
+    """
+    if not rules or len(upper) != 4 or len(lower) != 4:
+        return False
+    ux1, uy1, ux2, uy2 = upper
+    lx1, ly1, lx2, ly2 = lower
+    top = min(uy2, ly2)
+    bottom = max(uy1, ly1)
+    if bottom - top <= tol:
+        return False  # rows touch; no rule between them
+    shared_x1 = max(ux1, lx1)
+    shared_x2 = min(ux2, lx2)
+    shared_w = shared_x2 - shared_x1
+    if shared_w <= 0:
+        return False
+    for r in rules:
+        y = r["y"]
+        if not (top + tol < y < bottom - tol):
+            continue
+        span = min(r["x2"], shared_x2) - max(r["x1"], shared_x1)
+        if span >= cover * shared_w:
+            return True
+    return False
+
+
+def _merge_same_question_rows(clusters, wrap_band, rules=None):
     """Merge stacked option rows that belong to ONE question.
 
     `_cluster_options` only fuses vertically-adjacent boxes when a pair of
@@ -620,6 +670,10 @@ def _merge_same_question_rows(clusters, wrap_band):
                 set_b = {p["text"] for p in clusters[j]}
                 if set_a and set_b and set_a == set_b:
                     break  # same repeated options => distinct sub-questions
+                # A printed rule between the two rows means the form boxed them
+                # as separate questions, not as one wrapped option line.
+                if _printed_rule_between(a, b, rules):
+                    break
                 cur = cur + clusters[j]
                 clusters.pop(j)
                 changed = True
@@ -687,7 +741,12 @@ def detect_checkbox_groups(
     if not pairs:
         return []
     page_width = gray.shape[1]
-    clusters = _cluster_options(pairs, median_text_h, page_width)
+    # Printed rules: a rule drawn between two stacked option rows means the form
+    # boxed them as separate questions (see `_printed_rule_between`).
+    rules = merge_collinear_horizontal(
+        detect_line_segments(gray, orientation="horizontal", min_length_ratio=0.20)
+    )
+    clusters = _cluster_options(pairs, median_text_h, page_width, rules=rules)
     if min_options > 1:
         clusters = [c for c in clusters if len(c) >= min_options]
 
@@ -699,7 +758,7 @@ def detect_checkbox_groups(
     mh = max(float(median_text_h), 10.0)
     cbh = float(np.median([p["checkbox"]["height"] for p in pairs])) or mh
     wrap_band = 1.2 * max(mh, cbh)
-    clusters = _merge_same_question_rows(clusters, wrap_band)
+    clusters = _merge_same_question_rows(clusters, wrap_band, rules=rules)
 
     groups = []
     for i, cluster in enumerate(sorted(clusters, key=lambda g: _group_macro_bbox(g)[1])):
