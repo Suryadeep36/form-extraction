@@ -441,14 +441,21 @@ def _label_for_region(region, elements, median_text_h, exclude_texts=None):
                 if d <= d_cap:
                     candidates.append({
                         "text": text, "bbox": eb, "el": el,
-                        "dist": d, "above": False,
+                        "dist": d, "above": False, "row_hit": row_hit,
                     })
 
     if not candidates:
         return None
 
-    # Minimum distance first; an exact row/left label breaks distance ties.
-    candidates.sort(key=lambda c: (c["dist"], c["above"]))
+    # A label printed ON the field's own row beats one that merely happens to
+    # be closer.  In a two-column layout (Name of Doctor | Today's Date on one
+    # row, Name | Email Address on the next) each row's label ends well left of
+    # its own box, while the PREVIOUS row's wide label spans the box's x-range
+    # and so measures a smaller distance.  Ranking on distance alone therefore
+    # handed every box its neighbour's caption, duplicating one label across
+    # two boxes and losing the other entirely.  Prefer the row-aligned label,
+    # then fall back to distance for genuinely unlabelled fields.
+    candidates.sort(key=lambda c: (not c.get("row_hit"), c["dist"], c["above"]))
     best = candidates[0]
     text = best["text"]
     bbox = best["bbox"]

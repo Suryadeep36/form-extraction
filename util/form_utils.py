@@ -620,6 +620,17 @@ def _detect_grid_cells(
                 continue
 
             cell = [L, top, R, bottom]
+            # A labelled input cell is wider than it is tall: the user reads the
+            # caption across the top and writes underneath it.  A tall, narrow
+            # band is instead a gutter -- the blank strip between two unrelated
+            # ruled rows that happens to be bounded by vertical walls.  Those
+            # gutters carry stray captions from whichever row sits above them
+            # and would otherwise be reported as phantom fields ("Apt.#",
+            # "Cell Phone", a leftover "Female").  Height alone cannot catch
+            # this: the gutter's height follows how widely the page's rules are
+            # spaced, so it needs to be judged against the band's own width.
+            if (bottom - top) > (R - L):
+                continue
             if _inside_any_table(cell, table_bboxes, overlap_ratio=0.45):
                 continue
             if any(
