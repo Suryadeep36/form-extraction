@@ -553,8 +553,11 @@ def _extract_one(field_copy, workspace, w, h):
             
     if cb_match is not None and best_iou >= 0.15:
         from util.checkbox_utils import _mark_kind, _classify_window
-        from util.image_utils import _threshold_gray
-        bin_img = _threshold_gray(workspace["image"])
+        from util.image_utils import _threshold_gray, _load_gray
+        # `workspace["image"]` is the full 3-channel page frame, not a gray
+        # plane: `_threshold_gray` normalises it, but pass the gray view
+        # explicitly so this never depends on that helper's behaviour.
+        bin_img = _threshold_gray(_load_gray(workspace["image"]))
         mark = _mark_kind(bin_img, cb_match["bbox"])
         checked = mark in ("X", "filled", "tick")
         return {

@@ -769,6 +769,91 @@ def _refine_columns_from_header(cells, elements, bbox, median_text_h):
     return refined
 
 
+def _page_layout_score(cells, bbox, width, height):
+    """
+    FILTER 5 - reject a candidate that is really the whole page's field layout.
+
+    A form printed as a stack of full-width labelled rows (PATIENT DETAILS:
+    Name / Date of Birth / Address / Phone ...) rules horizontal lines across
+    the page for each field and a box or two around the page edge.  The grid
+    detector reads that as one enormous "table" spanning the entire sheet, and
+    the field rows disappear inside its cells.
+
+    Two signals, both required, so a genuine large table survives:
+
+      * the candidate covers most of the SHEET -- a data table is a region of
+        a form, never the page itself;
+      * most rows are a single undivided cell -- real grid rows are divided by
+        the interior vertical rules into the shared column set.
+
+    Returns the share of undivided rows when the candidate is page-sized (a
+    truthy value meaning "reject"), else 0.0.  Exposed as a score so the bbox
+    stage can apply the SAME test: stage 1 has no grid cells, so it falls back
+    to the candidate's own aspect/extent and the number of ruled bands.
+    """
+    if not cells:
+        return 0.0
+    x1, y1, x2, y2 = [float(v) for v in bbox]
+    if width <= 0 or height <= 0:
+        return 0.0
+    area = ((x2 - x1) * (y2 - y1)) / float(width * height)
+    if area < 0.75:
+        return 0.0
+    rows = {}
+    for c in cells:
+        rows.setdefault(c.get("row", 0), []).append(c)
+    if len(rows) < 4:
+        return 0.0
+    undivided = sum(1 for cs in rows.values() if len(cs) == 1)
+    share = undivided / len(rows)
+    return share if share >= 0.6 else 0.0
+
+
+def _is_page_layout(cells, bbox, width, height):
+    return bool(_page_layout_score(cells, bbox, width, height))
+
+
+def _looks_like_page_layout_bbox(bbox, horizontals, width, height, min_bands=4):
+    """
+    Stage-1 (bbox-only) form of the same FILTER 5.
+
+    `table_bboxes` are consumed by field detection to suppress input regions,
+    so a page-sized false table that survives stage 1 does not merely render as
+    a wrong table -- it silently deletes every real field inside it. This must
+    therefore reject the bbox BEFORE it becomes an exclusion box.
+
+    With no grid available, a page-sized candidate is judged by its ruled band
+    count: a real data table's internal rules divide it into rows whose heights
+    match its text, while a stack of full-width form-field rows (each field's
+    own underline plus the surrounding box edges) yields many thin, evenly
+    stacked bands.
+    """
+    if width <= 0 or height <= 0:
+        return False
+    x1, y1, x2, y2 = [float(v) for v in bbox]
+    if ((x2 - x1) * (y2 - y1)) / float(width * height) < 0.75:
+        return False
+    ys = sorted({
+        float(h["y"]) for h in (horizontals or [])
+        if y1 - 4 <= h["y"] <= y2 + 4
+    })
+    if len(ys) < min_bands:
+        return False
+    bands = [(b - a) for a, b in zip(ys[:-1], ys[1:])]
+    if not bands:
+        return False
+    band_h = (y2 - y1) / len(bands)
+    median_band = float(np.median(bands))
+    # Rows thin relative to the page, and no one of them is a tall data row.
+    thin = sum(1 for b in bands if b < 0.06 * height)
+    # A real data table's rows are the tallest thing on the page (a ruled row
+    # tall enough to write in); a stack of field underlines is uniformly
+    # thin. Compare the band's median against a single text line -- anything
+    # near or below one line cannot be a data row.
+    line = 0.035 * height
+    return thin >= 0.6 * len(bands) and median_band <= max(2.5 * line, line)
+
+
 def finalize_tables(fused, doc_rep, image):
     """
     Stage 2: Hybrid Extraction.
@@ -840,7 +925,16 @@ def finalize_tables(fused, doc_rep, image):
                 f"{after_cols} from header labels"
             )
 
-        # 5. Assign OCR strictly within this clamped geometry
+        # 5. FILTER 5: whole-page field layout masquerading as one table.
+        # Runs after structure is built because it reads the grid's row shape.
+        if _is_page_layout(cells, ml_bbox, width, height):
+            print(
+                f"[TABLE FILTER] Dropped page-layout-as-table "
+                f"(page-sized, mostly undivided rows): {ml_bbox}"
+            )
+            continue
+
+        # 6. Assign OCR strictly within this clamped geometry
         _assign_ocr_to_cells(elements, cells, ml_bbox)
 
         tables.append(

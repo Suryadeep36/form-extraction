@@ -35,12 +35,14 @@ from util.checkbox_utils import (
     strip_leading_option_mark,
 )
 from util.checkbox_group_utils import detect_checkbox_groups
+from util.line_utils import detect_line_segments, merge_collinear_horizontal
 from service.field_service import (
     process_form_fields
 )
 from service.table_service import (
     detect_and_fuse_tables,
     finalize_tables,
+    _looks_like_page_layout_bbox,
 )
 from util.perspective_utils import (
     correct_perspective,
@@ -107,6 +109,17 @@ def build_document_representation(image, image_path=None):
                 w["text"] = cw
 
     # ---- Tables stage 1: detect + fuse (bbox-only) -----------------------
+    # Horizontal rules are needed up front: the page-layout filter below reads
+    # them, and this stage runs long before the `horizontal` section that
+    # detects them for the document representation proper.
+    gray_for_lines = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    horiz = merge_collinear_horizontal(
+        detect_line_segments(
+            gray_for_lines,
+            orientation="horizontal",
+            min_length_ratio=0.20,
+        )
+    )
     fused, cv_candidates = detect_and_fuse_tables(image, raw_elements)
     valid_tables = []
     for t in fused:
@@ -122,7 +135,19 @@ def build_document_representation(image, image_path=None):
         if table_height < 60: 
             print(f"[TABLE FILTER] Dropped fake table (too short): {bbox}")
             continue
-            
+
+        # FILTER 5 (bbox stage): a page-sized grid made of stacked full-width
+        # bands is the form's own field layout, not a table. This MUST run
+        # before `table_bboxes` is built below -- that list is handed to
+        # detect_input_regions to suppress fields, so letting a whole-page
+        # false table through erases every real field it covers.
+        if _looks_like_page_layout_bbox(bbox, horiz, image_width, image_height):
+            print(
+                f"[TABLE FILTER] Dropped page-layout-as-table "
+                f"(page-sized, stacked bands): {bbox}"
+            )
+            continue
+
         valid_tables.append(t)
         
     fused = valid_tables

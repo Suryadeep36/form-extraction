@@ -12,8 +12,32 @@ def _load_image(image_or_path):
 
 def _load_gray(image_or_path):
     img = _load_image(image_or_path)
-    if len(img.shape) == 3:
-        return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    return _as_gray(img)
+
+
+def _as_gray(img):
+    """Coerce any image to a single-channel 8-bit array.
+
+    `adaptiveThreshold` and friends assert `CV_8UC1`, so a colour (BGR) or
+    float input raises `(-215) Assertion failed (src.type() == CV_8UC1)`.
+    Normalising here keeps that failure from ever reaching a caller.
+    """
+    if img is None:
+        return img
+    # Cast before cvtColor: OpenCV's colour conversion only accepts uint8 /
+    # uint16, so a float64 frame would fail the (different) CV_8UC1 assert.
+    if img.dtype != np.uint8:
+        img = np.clip(img, 0, 255).astype(np.uint8)
+    if img.ndim == 3:
+        # 4-channel BGRA: drop alpha rather than letting cvtColor fail.
+        code = (
+            cv2.COLOR_BGRA2GRAY
+            if img.shape[2] == 4
+            else cv2.COLOR_BGR2GRAY
+        )
+        img = cv2.cvtColor(img, code)
+    elif img.ndim > 3:
+        img = img.reshape(img.shape[-3], img.shape[-1])
     return img
 
 def _rotate_image(image, angle):
@@ -62,7 +86,7 @@ def _estimate_skew(image_or_path):
 
 def _threshold_gray(gray):
     return cv2.adaptiveThreshold(
-        gray,
+        _as_gray(gray),
         255,
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY_INV,
