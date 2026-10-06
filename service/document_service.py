@@ -34,8 +34,16 @@ from service.detection_service import (
 from util.checkbox_utils import (
     strip_leading_option_mark,
 )
-from util.checkbox_group_utils import detect_checkbox_groups
+from util.checkbox_group_utils import (
+    _BOX_GLYPHS,
+    detect_checkbox_groups,
+)
 from util.line_utils import detect_line_segments, merge_collinear_horizontal
+def _leads_with_box_glyph(text):
+    """True when OCR read a printed selection box as the label's first char."""
+    return bool(text) and text.lstrip().startswith(_BOX_GLYPHS)
+
+
 from service.field_service import (
     process_form_fields
 )
@@ -97,16 +105,25 @@ def build_document_representation(image, image_path=None):
     # Strip selection-mark glyphs that OCR glued onto the front of option
     # labels (e.g. "XPartially Boatable" -> "Partially Boatable").
     # Guards keep legitimate leading tokens ("X Latitude North") intact.
+    #
+    # BOX glyphs (U+2610 and friends) are different: on forms that print the
+    # selection box as a character there is no drawn square in the pixels, so
+    # that glyph IS the only evidence the option exists.  Checkbox detection
+    # runs further below and reads it from the un-stripped text, so the leading
+    # box glyph must be left in place here; only the label is cleaned up, and
+    # the strip happens later inside the option binder.
     for element in raw_elements:
         text = element.get("text") or ""
-        cleaned, _changed = strip_leading_option_mark(text)
-        if _changed:
-            element["text"] = cleaned
+        if not _leads_with_box_glyph(text):
+            cleaned, _changed = strip_leading_option_mark(text)
+            if _changed:
+                element["text"] = cleaned
         for w in element.get("words") or []:
             wtext = w.get("text") or ""
-            cw, cchanged = strip_leading_option_mark(wtext)
-            if cchanged:
-                w["text"] = cw
+            if not _leads_with_box_glyph(wtext):
+                cw, cchanged = strip_leading_option_mark(wtext)
+                if cchanged:
+                    w["text"] = cw
 
     # ---- Tables stage 1: detect + fuse (bbox-only) -----------------------
     # Horizontal rules are needed up front: the page-layout filter below reads

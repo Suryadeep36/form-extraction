@@ -64,6 +64,23 @@ from util.checkbox_utils import (
     _classify_window,
     strip_leading_option_mark,
 )
+from util.geometry_utils import _intersection_over_area
+
+# Box glyphs an OCR engine reports as the first character of an option label
+# when a form prints its selection box as a character rather than as drawn ink.
+_BOX_GLYPHS = ("☐", "☑", "☒", "□", "▢", "◻", "❑", "❒")
+
+
+def _leads_with_box_glyph(text):
+    return bool(text) and text[0] in _BOX_GLYPHS
+
+
+def _inside_any(bbox, boxes):
+    x1, y1, x2, y2 = bbox
+    return any(
+        x1 >= bx1 and y1 >= by1 and x2 <= bx2 and y2 <= by2
+        for bx1, by1, bx2, by2 in boxes
+    )
 from util.line_utils import detect_line_segments, merge_collinear_horizontal
 
 
@@ -267,7 +284,87 @@ def _is_selection_box(bin_img, x, y, w, h):
     bands = _ring_side_darkness(bin_img, x, y, x + w, y + h)
     if bands is None:
         return False
-    return min(bands[:4]) >= 0.25
+    if min(bands[:4]) >= 0.25:
+        return True
+    # A ROUND selection mark (radio button, or a hand-drawn/printed circle) has
+    # no straight sides, so the 1-px rim test above scores near zero: the rim
+    # only crosses the window border near the four axis points instead of
+    # running along its edges.  `edge_dark` for such a shape lands around 0.18
+    # and it is rejected as "not a frame", even though it is exactly as valid a
+    # selection mark as a square.
+    #
+    # A circle is distinguished from a straight-edged frame by its CORNERS: on a
+    # square all four corners are dark; on a circle they are blank.  Measure the
+    # corners of the scaled band window and accept when they are light while
+    # every side band stays dark, i.e. the ink runs edge-to-edge through the
+    # middle of each side but stops short at the corners.
+    return _is_round_ring(bin_img, x, y, w, h, bands)
+
+
+def _is_round_ring(bin_img, x1, y1, w, h, bands=None):
+    """True when the window holds a closed ROUND selection mark.
+
+    Checks that (a) the middle of all four sides is dark, so the shape really
+    does enclose the window, (b) the four corners are light, which is what
+    separates a circle from a square/rectangle frame, and (c) the interior is
+    comparatively empty so a filled blob or printed glyph cannot qualify.
+    """
+    ih, iw = bin_img.shape
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(iw, x1 + w), min(ih, y1 + h)
+    win = bin_img[y1:y2, x1:x2]
+    hh, ww = win.shape[:2]
+    if hh < 8 or ww < 8:
+        return False
+    if bands is None:
+        bands = _ring_side_darkness(bin_img, x1, y1, x2, y2)
+        if bands is None:
+            return False
+    top, bot, left, right = bands[:4]
+    # Every side's midpoint must be inked, otherwise nothing is enclosed.  A
+    # circle only clips ~20% of each band (its widest point is a single point
+    # at the middle), whereas a square inks the whole band, so the round test
+    # admits a lower floor than the square rim test above.
+    if min(top, bot, left, right) < 0.15:
+        return False
+    band = max(1, int(round(min(hh, ww) * 0.16)))
+    corner = max(2, int(round(min(hh, ww) * 0.18)))
+    cs = [
+        win[:corner, :corner],           # top-left
+        win[:corner, -corner:],          # top-right
+        win[-corner:, :corner],          # bottom-left
+        win[-corner:, -corner:],         # bottom-right
+    ]
+    if any(float(np.mean(c > 0)) > 0.30 for c in cs):
+        return False  # dark corners -> a square frame, not a circle
+    # Reject a diagonal/graphic shape: the centre band must stay light.
+    cy0, cy1 = hh // 2 - max(1, hh // 8), hh // 2 + max(1, hh // 8)
+    cx0, cx1 = ww // 2 - max(1, ww // 8), ww // 2 + max(1, ww // 8)
+    if float(np.mean(win[cy0:cy1, cx0:cx1] > 0)) >= 0.30:
+        return False
+    # Confirm the ink really forms a closed ring rather than four disconnected
+    # side marks, by its RADIAL profile: a circle puts its ink in one
+    # mid-radius annulus while leaving both the middle and the outside clear.
+    # (A flood-fill test was tried first and is unreliable here: a thin rim
+    # often touches the window edge, so the fill leaks in and reports no hole.)
+    cy, cx = (hh - 1) / 2.0, (ww - 1) / 2.0
+    rad = np.hypot(
+        np.arange(ww, dtype=np.float32)[None, :] - cx,
+        np.arange(hh, dtype=np.float32)[:, None] - cy,
+    )
+    R = max(min(ww, hh) / 2.0, 1.0)
+    ink = win
+    inner = rad < 0.55 * R
+    outer = rad > 1.10 * R
+    band_in = (rad >= 0.75 * R) & (rad < 1.10 * R)
+    if not (inner.any() and outer.any() and band_in.any()):
+        return False
+    if float(np.mean(ink[inner])) > 0.06:
+        return False
+    if float(np.mean(ink[outer])) > 0.06:
+        return False
+    # The annulus must be genuinely inked all the way round, not on one arc.
+    return float(np.mean(ink[band_in])) >= 0.10
 
 
 def _checkbox_candidates(
@@ -294,6 +391,13 @@ def _checkbox_candidates(
     selection box.  Returns a list of
     {"bbox", "width", "height", "center"} candidates with center outside every
     exclusion bbox.
+
+      3. glyph pass    - some forms print the box as a CHARACTER ("U+2610
+    BALLOT BOX", "U+2611", "U+2612", "U+25A1") that the OCR engine reads as
+    part of the option's own text ("<box> Male").  There is no drawn square in
+    the pixels for the contour passes to find, so those options are invisible
+    to pure geometry.  Here each glyph-led element yields a candidate sized
+    from the text's own height and positioned where the glyph sits.
     """
     bin_img = _threshold_gray(gray)
     low, high = _checkbox_scale(median_text_h)
@@ -359,6 +463,34 @@ def _checkbox_candidates(
             "center": [x + cw / 2.0, y + ch / 2.0],
         })
 
+    # ---- Pass 1b - isolated ring components (no morphological close) ----
+    # Pass 1 works on `closed`, a 3x3 morphological CLOSE of the whole page.
+    # That close is what lets a rim that merely TOUCHES a rule or a neighbouring
+    # glyph fuse into one blob, and it is also why a selection box printed in
+    # light ink can vanish: the close dilates the faint 1px rim into its
+    # neighbour, so RETR_EXTERNAL never returns a standalone square.  The rim is
+    # still a clean connected component in the UNCLOSED binary, so probe
+    # components directly there and gate them with the same checks.  This
+    # recovers forms whose boxes are drawn but too faint or too close to other
+    # ink to survive the close.
+    cc2, lab2, st2, _ce2 = cv2.connectedComponentsWithStats(
+        (bin_img > 0).astype(np.uint8), 8
+    )
+    for i in range(1, cc2):
+        x, y, cw, ch, area = (int(v) for v in st2[i][:5])
+        if cw * ch > 4 * high * high:
+            continue
+        if not _accept(x, y, cw, ch):
+            continue
+        cand = {
+            "bbox": [float(x), float(y), float(x + cw), float(y + ch)],
+            "width": float(cw),
+            "height": float(ch),
+            "center": [x + cw / 2.0, y + ch / 2.0],
+        }
+        if not _same_candidate(cand, cands):
+            cands.append(cand)
+
     # ---- Pass 2 - hole-based rings (survive gridline / underline contact) ---
     # A closed selection box whose rim merges with a long rule shares one giant
     # external contour, so the contour pass cannot bound it.  Its interior is
@@ -408,12 +540,154 @@ def _checkbox_candidates(
                     })
                 break
 
-    return cands
+    for gc in _glyph_candidates(elements, exclude_bboxes or []):
+        if not _same_candidate(gc, cands):
+            cands.append(gc)
+
+    return _dedupe_candidates(cands)
+
+
+def _dedupe_candidates(cands):
+    """Collapse passes that rediscovered the same printed box.
+
+    The contour pass, the unclosed-component pass and the glyph pass can all
+    propose one physical box (the glyph pass when the box is printed as a
+    character the OCR text already carries).  Every copy would otherwise bind
+    the same option label again, so the group reports `Male, Male`.  Kept when
+    copies coincide, or when one is contained in another and at least half its
+    size -- a genuinely nested smaller box next to a larger one is real.
+    """
+    kept = []
+    for cand in cands:
+        if _same_candidate(cand, kept):
+            # Prefer the richer geometry when the copies differ slightly.
+            for i, c in enumerate(kept):
+                if _same_candidate(cand, [c]):
+                    if (
+                        not cand.get("from_glyph")
+                        and c.get("from_glyph")
+                    ):
+                        kept[i] = cand
+                    break
+            continue
+        kept.append(cand)
+    return kept
+
+
+def _same_candidate(cand, existing):
+    """True when `cand` repeats a box the passes above already proposed.
+
+    Several passes legitimately rediscover the SAME printed box (the contour
+    pass and the unclosed-component pass both see a clean standalone rim), and
+    a box drawn as a character is also inside the text it leads.  Keeping both
+    copies would bind the same option label twice and duplicate it in the
+    group.  Identical bboxes are collapsed outright; a box that merely sits
+    inside another one is treated as the same box only when it is at least half
+    the size, since a genuinely nested small box next to a large one is real.
+    """
+    for c in existing:
+        cb = c["bbox"]
+        overlap_w = min(cand["bbox"][2], cb[2]) - max(cand["bbox"][0], cb[0])
+        overlap_h = min(cand["bbox"][3], cb[3]) - max(cand["bbox"][1], cb[1])
+        if overlap_w <= 0 or overlap_h <= 0:
+            continue
+        contained = (
+            cand["bbox"][0] >= cb[0] - 1
+            and cand["bbox"][1] >= cb[1] - 1
+            and cand["bbox"][2] <= cb[2] + 1
+            and cand["bbox"][3] <= cb[3] + 1
+        )
+        identical = all(
+            abs(a - b) <= 1 for a, b in zip(cand["bbox"], cb)
+        )
+        if identical:
+            return True
+        if contained and min(cand["width"], cand["height"]) >= 0.5 * min(
+            c["width"], c["height"]
+        ):
+            return True
+        # A glyph-derived box is positioned from the OCR text bbox, which
+        # carries padding and so lands a few px off the drawn rim it
+        # represents.  Treat near-coincident centres as one box rather than
+        # requiring exact containment.
+        ccx = (cand["bbox"][0] + cand["bbox"][2]) / 2.0
+        ccy = (cand["bbox"][1] + cand["bbox"][3]) / 2.0
+        ecx = (cb[0] + cb[2]) / 2.0
+        ecy = (cb[1] + cb[3]) / 2.0
+        near = 0.6 * max(min(c["width"], c["height"]),
+                         min(cand["width"], cand["height"]))
+        if abs(ccx - ecx) <= near and abs(ccy - ecy) <= near:
+            return True
+    return False
+
+
+def _glyph_candidates(elements, exclude_bboxes):
+    """Selection boxes printed as a CHARACTER and read as leading label text.
+
+    A form that renders its box as "☐" leaves no square outline in the pixels,
+    so the contour passes cannot see it; the option only exists as the glyph at
+    the start of the OCR text.  This reconstructs the box geometry from the
+    text's own metrics: the glyph occupies roughly the first character's width
+    at the top of the text line, and a ballot box is square and about one text
+    height tall.
+    """
+    out = []
+    for el in elements or []:
+        eb = el.get("bbox")
+        if not eb or len(eb) != 4:
+            continue
+        text = str(el.get("text") or "").strip()
+        if not text or text[0] not in _BOX_GLYPHS:
+            continue
+        rest = text[1:].strip()
+        # A lone box glyph with no label is a bare checkbox; it still counts,
+        # but a glyph that is the ENTIRE text is more likely OCR noise.
+        if not rest:
+            continue
+        x1, y1, x2, y2 = (float(v) for v in eb)
+        side = min(y2 - y1, max(x2 - x1, 1.0))
+        # The glyph sits at the very start of the line, before the label.
+        gx1 = x1
+        gx2 = min(x1 + side, x2)
+        cand = {
+            "bbox": [gx1, y1, gx2, y1 + side],
+            "width": gx2 - gx1,
+            "height": side,
+            "center": [(gx1 + gx2) / 2.0, y1 + side / 2.0],
+            "from_glyph": True,
+        }
+        if any(
+            _intersection_over_area(cand["bbox"], box) > 0.25
+            for box in exclude_bboxes or []
+        ):
+            continue
+        out.append(cand)
+    return out
 
 
 # ---------------------------------------------------------------------------
 # Stage 2 - bind each checkbox to its nearest same-row label
 # ---------------------------------------------------------------------------
+
+def _ink_embedded_in_text(box, text_bbox, median_text_h):
+    """True when `box` is a letter-shaped blob SWALLOWED by a longer word.
+
+    Small closed contours sometimes sit inside a word's bounding box: a
+    slashed "0" in "Officer", the counter of a "D" in "Date".  They survive
+    every shape gate - they really are small, closed and roughly square - and
+    then bind to that word as if it were an option.
+
+    The discriminator is the LEFT inset.  A genuine option box printed as
+    part of a merged "glyph + label" element starts at, or a hair left of,
+    that element's box, because the box IS the start of the text run.  A blob
+    that is a letter is surrounded: the element starts well to its left.  So
+    require a generous left inset before calling the ink part of the word.
+    """
+    if not text_bbox:
+        return False
+    inset = box[0] - text_bbox[0]
+    return inset > max(2.0 * median_text_h, 12.0)
+
 
 def _horizontal_edge_gap(box, text_bbox):
     """Distance between the box edge and text bbox edge; 0 when overlapping."""
@@ -469,6 +743,8 @@ def _bind_options(checkboxes, elements, median_text_h):
                 continue
             if (side > best_side) or (side == best_side and d < best_d):
                 best_side, best_d, best = side, d, el
+        if best is not None and _ink_embedded_in_text(cb["bbox"], best["bbox"], median_text_h):
+            continue
         if best is not None:
             cleaned, _changed = strip_leading_option_mark(best["text"])
             pairs.append({
@@ -514,7 +790,38 @@ def _cluster_options(pairs, median_text_h, page_width, rules=None):
     cbh = float(np.median([p["checkbox"]["height"] for p in pairs])) or mh
     row_band = 2.0 * max(mh, cbh)
     same_row = 0.5 * max(mh, cbh)
-    h_reach = 0.3 * float(page_width)
+    # How far apart two boxes may sit and still be options of the same question
+    # when they share a row.  A page-relative cap (previously 0.3 x width) is
+    # the wrong yardstick: it makes the answer depend on the SCAN RESOLUTION
+    # rather than the layout, so a sparsely spread option row on a wide page got
+    # torn into one group per option ("long: [a]" and "long: [b]" instead of
+    # "long: [a, b]"), while the same layout on a narrow page stayed intact.
+    #
+    # What actually separates "options of one question" from "options of two
+    # different questions printed side by side" is the gap RELATIVE to the
+    # other options on that row.  A question's options are laid out on a roughly
+    # even pitch, so a wide gap is fine as long as the boxes around it sit at
+    # comparable spacing.  Scale the reach by the row's own median pitch with a
+    # generous multiple, and keep a page-relative floor for sparse pages.
+    _same_row_pitches = []
+    for i in range(len(pairs)):
+        for j in range(i + 1, len(pairs)):
+            a_box = pairs[i]["checkbox"]["bbox"]
+            b_box = pairs[j]["checkbox"]["bbox"]
+            if abs(pairs[i]["checkbox"]["center"][1]
+                   - pairs[j]["checkbox"]["center"][1]) > same_row:
+                continue
+            gap = _horizontal_edge_gap(a_box, b_box)
+            if gap > 0:
+                _same_row_pitches.append(gap)
+    if _same_row_pitches:
+        h_reach = max(
+            4.0 * float(np.median(_same_row_pitches)),
+            8.0 * cbh,
+            0.3 * float(page_width),
+        )
+    else:
+        h_reach = max(8.0 * cbh, 0.3 * float(page_width))
 
     parent = list(range(len(pairs)))
 
@@ -660,6 +967,11 @@ def _merge_same_question_rows(clusters, wrap_band, rules=None):
             while j < len(clusters):
                 a = _extent(cur)
                 b = _extent(clusters[j])
+                # NOTE: this is an OVERLAP measure, not a separation distance.
+                # When two clusters are vertically separated it goes negative
+                # and only the "rows touch" test below rejects the pair; the
+                # wrap band is what decides whether non-touching rows are
+                # consecutive lines of one question.
                 gap = max(a[1], b[1]) - min(a[3], b[3])
                 if gap > wrap_band:
                     break  # sorted by top: every later cluster is farther off
@@ -729,11 +1041,34 @@ def detect_checkbox_groups(
             for c in candidates
         )
         med = sides[len(sides) // 2]
+        # The intent was to drop lone decoys far smaller than their siblings.
+        # A 0.55x cut does that, but it also silently deletes every real option
+        # box on a form that mixes sizes: a page whose questions use a large
+        # box and whose last question uses a small one lost the whole small
+        # question (its 41px boxes fell just under 0.55 x 75 = 41.25, and with
+        # them that question's options and label).  Reject only boxes that are
+        # BOTH far smaller than the median AND isolated - a small box that
+        # shares its row with another small box is a real option, not a decoy.
         keep_min = max(12.0, 0.55 * med)
-        candidates = [
-            c for c in candidates
-            if min(c["width"], c["height"]) >= keep_min
-        ]
+        kept = []
+        for c in candidates:
+            side = min(c["width"], c["height"])
+            if side >= keep_min:
+                kept.append(c)
+                continue
+            # Keep a sub-threshold box when another sub-threshold box sits on
+            # the same printed row: a question's options are all one size.
+            cy = c["center"][1]
+            companions = sum(
+                1
+                for o in candidates
+                if o is not c
+                and min(o["width"], o["height"]) < keep_min
+                and abs(o["center"][1] - cy) <= 0.75 * max(c["height"], o["height"])
+            )
+            if companions:
+                kept.append(c)
+        candidates = kept
         if not candidates:
             return []
 
@@ -756,8 +1091,27 @@ def detect_checkbox_groups(
     # wrapped question are consecutive, so a band beyond that would swallow
     # unrelated fields printed a row further down.
     mh = max(float(median_text_h), 10.0)
-    cbh = float(np.median([p["checkbox"]["height"] for p in pairs])) or mh
-    wrap_band = 1.2 * max(mh, cbh)
+    # The band must express ONE PRINTED LINE PITCH - the vertical step between
+    # an option and the next line of that SAME question.  Neither page-wide
+    # median works: `median_text_h` is the median over ALL OCR elements, and on
+    # a form whose biggest elements are its own selection boxes both that and
+    # the median box height come out at the box size, far above the real pitch.
+    # A band that wide then swallows rows of two DIFFERENT questions a blank
+    # line apart (an "important" yes/no/other row and the "long" a/b row below
+    # it), fusing them so one label ends up describing both.
+    #
+    # Use the SMALL box on the page as the unit instead.  A checkbox is drawn on
+    # its option line and is no taller than the line, so the smallest box is a
+    # tight, outlier-free proxy for the line pitch: on a form of uniformly sized
+    # boxes it IS the pitch, and on a page mixing large and small boxes it
+    # tracks the option text rather than the largest graphic.  One pitch and a
+    # bit is a consecutive line; two pitches is a different question.
+    sides = [
+        min(p["checkbox"]["width"], p["checkbox"]["height"]) for p in pairs
+    ]
+    unit = float(np.min(sides)) if sides else mh
+    cbh = float(np.median(sides)) if sides else mh
+    wrap_band = max(1.5 * unit, min(0.9 * cbh, 1.5 * mh))
     clusters = _merge_same_question_rows(clusters, wrap_band, rules=rules)
 
     groups = []

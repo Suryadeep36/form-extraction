@@ -64,7 +64,25 @@ def _rotate_image(image, angle):
 
 
 def _estimate_skew(image_or_path):
+    """Estimate page skew in degrees from TEXT BASELINE projection.
+
+    The previous implementation ran `minAreaRect` over every ink pixel, which
+    measures the orientation of the page's largest ink mass.  That is the text
+    baseline only when text dominates the page; when large selection squares,
+    logos or graphic bars dominate, their arrangement determines the returned
+    angle instead.  On a level form whose squares happen to form a diagonal the
+    method reported +2.6 deg and the pipeline rotated an already-straight page.
+
+    Projection-profile variance is the standard alternative: text rows are long
+    horizontal bands, so rotating by the true skew maximises the sharpness of
+    the row-occupancy profile.  Non-text blobs (hollow squares) contribute a
+    diffuse background that barely responds to rotation, so they cannot tilt
+    the estimate.  Returns 0.0 when the page has too little ink or when no
+    angle in the search range clearly beats level.
+    """
     gray = _load_gray(image_or_path)
+    if gray.size == 0:
+        return 0.0
     binary = cv2.adaptiveThreshold(
         gray,
         255,
@@ -73,16 +91,50 @@ def _estimate_skew(image_or_path):
         31,
         10,
     )
-    coords = np.column_stack(np.where(binary > 0))
-    if len(coords) < 100:
+    ink = (binary > 0)
+    # Text is the only thing that yields many separate rows; without a decent
+    # row population any angle is indistinguishable from noise.
+    row_profile = ink.sum(axis=1).astype(np.float64)
+    peaks = int(((row_profile[1:-1] > row_profile[:-2]) &
+                 (row_profile[1:-1] > row_profile[2:])).sum())
+    if ink.sum() < 200 or peaks < 3:
         return 0.0
 
-    angle = cv2.minAreaRect(coords)[-1]
-    if angle < -45:
-        angle = 90 + angle
-    elif angle > 45:
-        angle = angle - 90
-    return angle
+    h, w = ink.shape
+    # Centre-crop so a full-width graphic border cannot dominate the profile.
+    ch = max(1, int(h * 0.9))
+    cw = max(1, int(w * 0.9))
+    y0 = (h - ch) // 2
+    x0 = (w - cw) // 2
+    sub = ink[y0:y0 + ch, x0:x0 + cw]
+
+    def _score(angle_deg):
+        # Rotate about the centre and score the row-occupancy variance: the
+        # sharper the text bands, the higher the variance of the profile.
+        mat = cv2.getRotationMatrix2D(
+            (cw / 2.0, ch / 2.0), float(angle_deg), 1.0
+        )
+        rot = cv2.warpAffine(
+            sub.astype(np.uint8), mat, (cw, ch),
+            flags=cv2.INTER_NEAREST, borderValue=0,
+        )
+        prof = rot.sum(axis=1).astype(np.float64)
+        return float(np.var(np.diff(prof)))
+
+    # Coarse sweep then refine; the true skew of a scanned page is small.
+    coarse = np.arange(-5.0, 5.01, 0.5)
+    best = max(coarse, key=_score)
+    fine = np.arange(best - 0.5, best + 0.51, 0.05)
+    best = float(max(fine, key=_score))
+
+    # Reject angles that do not actually beat the level page by a clear
+    # margin: a level scan must stay level rather than be nudged by noise.
+    if _score(0.0) > 0.0 and _score(best) <= _score(0.0) * 1.02:
+        return 0.0
+    # `best` is the skew OF THE PAGE, but callers pass this straight to
+    # `cv2.getRotationMatrix2D` as the correction to apply, so negate it.
+    return -best
+
 
 def _threshold_gray(gray):
     return cv2.adaptiveThreshold(

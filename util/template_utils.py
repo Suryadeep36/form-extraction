@@ -17,6 +17,8 @@ import math
 from difflib import SequenceMatcher
 import numpy as np
 
+from util.checkbox_utils import strip_leading_option_mark
+
 # ---------------------------------------------------------------------------
 # Value / label helpers
 # ---------------------------------------------------------------------------
@@ -1036,7 +1038,14 @@ def build_template_fields(doc_rep, image_width, image_height):
         label = ""
         label_bbox = None
         if label_info and _label_is_field_label(label_info["text"]):
-            label = label_info["text"]
+            # `_label_for_region` sees the raw element text, which on a
+            # glyph-printed form still begins with the box character; an option
+            # label would never carry it, so drop it before using it as a
+            # question name.
+            clean_label, _label_changed = strip_leading_option_mark(
+                label_info["text"]
+            )
+            label = (clean_label or label_info["text"]).strip()
             label_bbox = [
                 label_info["bbox"][0] / image_width,
                 label_info["bbox"][1] / image_height,
@@ -1054,8 +1063,15 @@ def build_template_fields(doc_rep, image_width, image_height):
             ob = opt.get("bbox")
             if not ob or len(ob) != 4:
                 continue
+            # The option's stored text can still carry the printed box glyph
+            # when the box is a character rather than drawn ink; the binder
+            # strips it for groups it recognised geometrically, but a glyph-led
+            # option reaches here verbatim.  Keep the label clean either way.
+            opt_text, _opt_changed = strip_leading_option_mark(
+                opt.get("text") or ""
+            )
             options.append({
-                "text": opt.get("text") or "",
+                "text": (opt_text or opt.get("text") or "").strip(),
                 "bbox": [
                     round(ob[0] / image_width, 5),
                     round(ob[1] / image_height, 5),
