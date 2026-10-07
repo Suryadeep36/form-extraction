@@ -9,8 +9,7 @@ boto3
 # (sqlite needs no driver).
 psycopg
 PyJWT
-google-genai
-groq
+
 paddleocr
 paddlepaddle
 opencv-python

@@ -3,15 +3,7 @@ import cv2
 import json
 import base64
 from fastapi import HTTPException
-from service.candidate_field_service import (
-    generate_field_candidates
-)
-from service.llm_service import (
-    build_structure_prompt
-)
-from service.gemini_service import (
-    gemini_client
-)
+
 from util.image_utils import (
     _load_image,
     _estimate_skew,
@@ -266,66 +258,14 @@ def analyze_document(image_or_path, image_path=None):
     except Exception as e:
         print(f"[PROCESS] corrected-image encode failed: {e}")
 
-    candidates = generate_field_candidates(doc_rep)
+    candidates = []
 
     from util.debug_utils import write_debug_document
     write_debug_document(info["image"], doc_rep, image_path or "analyze")
 
     return doc_rep, candidates
 
-from tenacity import retry, wait_exponential, stop_after_attempt
 
-@retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(5))
-def interpret_document(doc_rep, candidates):
-    prompt = build_structure_prompt(doc_rep, candidates)
-
-    print(prompt)
-
-    response = gemini_client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=[
-            {
-                "role": "user",
-                "parts": [
-                    {
-                        "text": (
-                            "You are a document understanding system. "
-                            "You interpret relationships and return JSON "
-                            "referencing only the IDs you are given. "
-                            "Never invent coordinates or IDs.\n\n"
-                            + prompt
-                        )
-                    }
-                ]
-            }
-        ],
-        config={
-            "temperature": 0,
-            "response_mime_type": "application/json",
-        }
-    )
-
-    llm_output = response.text
-
-    print("Gemini response received.")
-    print(llm_output)
-    if not llm_output:
-        raise HTTPException(
-            status_code=500,
-            detail="LLM returned an empty response."
-        )
-
-    try:
-        return json.loads(llm_output)
-
-    except json.JSONDecodeError as e:
-        print("Invalid JSON returned by LLM:")
-        print(llm_output)
-
-        raise HTTPException(
-            status_code=500,
-            detail="LLM returned invalid JSON: " + str(e)
-        )
 
 def preprocess_document(image_or_path, output_path=None):
     """
