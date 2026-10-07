@@ -46,7 +46,8 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Security(securi
                 public_key,
                 algorithms=["RS256"],
                 # Clerk tokens require checking the party/issuer depending on strictness
-                options={"verify_aud": False, "verify_iss": False} 
+                options={"verify_aud": False, "verify_iss": False},
+                leeway=60
             )
             return payload["sub"] # The Clerk user ID
         else:
