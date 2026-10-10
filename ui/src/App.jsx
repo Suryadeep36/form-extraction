@@ -1,8 +1,5 @@
 import { NavLink, Route, Routes, Navigate } from 'react-router-dom';
 import { SignedIn, SignedOut, SignIn, UserButton } from '@clerk/clerk-react';
-import Dashboard from './pages/Dashboard.jsx';
-import Extractor from './pages/Extractor.jsx';
-import DocumentDetail from './pages/DocumentDetail.jsx';
 import Templates from './pages/Templates.jsx';
 import TemplateDetail from './pages/TemplateDetail.jsx';
 
@@ -20,12 +17,7 @@ export default function App() {
           <div className="flex items-center gap-4">
             <SignedIn>
               <div className="flex items-center gap-1">
-                <NavLink to="/" end className={navClass}>
-                  Dashboard
-                </NavLink>
-                <NavLink to="/extract" className={navClass}>
-                  New Extraction
-                </NavLink>
+
                 <NavLink to="/templates" className={navClass}>
                   Templates
                 </NavLink>
@@ -42,9 +34,7 @@ export default function App() {
             <SignIn redirectUrl="/" />
           </div>
         } />
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/extract" element={<Extractor />} />
-        <Route path="/document/:id" element={<DocumentDetail />} />
+        <Route path="/" element={<Navigate to="/templates" replace />} />
         <Route path="/templates" element={<Templates />} />
         <Route path="/templates/:id" element={<TemplateDetail />} />
         <Route
