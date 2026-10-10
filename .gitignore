@@ -5,7 +5,6 @@ __pycache__
 .env.example
 uploads/
 extract-form-forms/
-codebase_context.txt 
 context-map.json 
 context-map.txt
 function_call.py

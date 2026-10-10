@@ -1,0 +1,2215 @@
+└── register_form_template(image, name)
+    LOCATION: main.py:310-322
+    QUALIFIED: main.register_form_template
+    DECORATORS: app.post('/register-template')
+    └── _save_upload(image)
+        LOCATION: main.py:299-306
+        QUALIFIED: main._save_upload
+    └── register_template(image_path, name)
+        LOCATION: service/template_service.py:151-194
+        QUALIFIED: service.template_service.register_template
+        └── preprocess_document(image_or_path, output_path)
+            LOCATION: service/document_service.py:302-357
+            QUALIFIED: service.document_service.preprocess_document
+            └── _load_image(image_or_path)
+                LOCATION: util/image_utils.py:4-10
+                QUALIFIED: util.image_utils._load_image
+            └── correct_perspective(image)
+                LOCATION: util/perspective_utils.py:249-357
+                QUALIFIED: util.perspective_utils.correct_perspective
+                └── detect_document_corners(gray)
+                    LOCATION: util/perspective_utils.py:103-173
+                    QUALIFIED: util.perspective_utils.detect_document_corners
+                    └── _quadrilateral_corners(mask)
+                        LOCATION: util/perspective_utils.py:48-93
+                        QUALIFIED: util.perspective_utils._quadrilateral_corners
+                        └── _order_corners(corners)
+                            LOCATION: util/perspective_utils.py:25-45
+                            QUALIFIED: util.perspective_utils._order_corners
+                        └── _order_corners(corners)
+                            LOCATION: util/perspective_utils.py:25-45
+                            QUALIFIED: util.perspective_utils._order_corners
+                        └── _order_corners(corners)
+                            LOCATION: util/perspective_utils.py:25-45
+                            QUALIFIED: util.perspective_utils._order_corners
+                    └── _corner_lines_fallback(gray)
+                        LOCATION: util/perspective_utils.py:176-232
+                        QUALIFIED: util.perspective_utils._corner_lines_fallback
+                        └── slope(seg)
+                            LOCATION: util/perspective_utils.py:200-205
+                            QUALIFIED: util.perspective_utils.slope
+                        └── slope(seg)
+                            LOCATION: util/perspective_utils.py:200-205
+                            QUALIFIED: util.perspective_utils.slope
+                        └── _line_intersection(seg_a, seg_b)
+                            LOCATION: util/perspective_utils.py:235-246
+                            QUALIFIED: util.perspective_utils._line_intersection
+                        └── _line_intersection(seg_a, seg_b)
+                            LOCATION: util/perspective_utils.py:235-246
+                            QUALIFIED: util.perspective_utils._line_intersection
+                        └── _line_intersection(seg_a, seg_b)
+                            LOCATION: util/perspective_utils.py:235-246
+                            QUALIFIED: util.perspective_utils._line_intersection
+                        └── _line_intersection(seg_a, seg_b)
+                            LOCATION: util/perspective_utils.py:235-246
+                            QUALIFIED: util.perspective_utils._line_intersection
+                        └── _order_corners(corners)
+                            LOCATION: util/perspective_utils.py:25-45
+                            QUALIFIED: util.perspective_utils._order_corners
+                    └── _mask_area_ratio(mask)
+                        LOCATION: util/perspective_utils.py:96-100
+                        QUALIFIED: util.perspective_utils._mask_area_ratio
+                └── _dist(a, b)
+                    LOCATION: util/perspective_utils.py:310-311
+                    QUALIFIED: util.perspective_utils._dist
+                └── _dist(a, b)
+                    LOCATION: util/perspective_utils.py:310-311
+                    QUALIFIED: util.perspective_utils._dist
+                └── _dist(a, b)
+                    LOCATION: util/perspective_utils.py:310-311
+                    QUALIFIED: util.perspective_utils._dist
+                └── _dist(a, b)
+                    LOCATION: util/perspective_utils.py:310-311
+                    QUALIFIED: util.perspective_utils._dist
+            └── _get_orientation_model()
+                LOCATION: util/ocr_model_utils.py:15-18
+                QUALIFIED: util.ocr_model_utils._get_orientation_model
+                DECORATORS: lru_cache(maxsize=1)
+            └── _estimate_skew(image_or_path)
+                LOCATION: util/image_utils.py:42-61
+                QUALIFIED: util.image_utils._estimate_skew
+                └── _load_gray(image_or_path)
+                    LOCATION: util/image_utils.py:13-17
+                    QUALIFIED: util.image_utils._load_gray
+                    └── _load_image(image_or_path)
+                        LOCATION: util/image_utils.py:4-10
+                        QUALIFIED: util.image_utils._load_image
+            └── _rotate_image(image, angle)
+                LOCATION: util/image_utils.py:19-39
+                QUALIFIED: util.image_utils._rotate_image
+        └── build_document_representation(image, image_path)
+            LOCATION: service/document_service.py:52-214
+            QUALIFIED: service.document_service.build_document_representation
+            └── _load_image(image_or_path)
+                LOCATION: util/image_utils.py:4-10
+                QUALIFIED: util.image_utils._load_image
+            └── get_ocr_data(image_or_path)
+                LOCATION: service/ocr_service.py:27-100
+                QUALIFIED: service.ocr_service.get_ocr_data
+                └── _get_ocr_engine()
+                    LOCATION: util/ocr_model_utils.py:5-11
+                    QUALIFIED: util.ocr_model_utils._get_ocr_engine
+                    DECORATORS: lru_cache(maxsize=1)
+                └── _quad_to_bbox(points)
+                    LOCATION: service/ocr_service.py:19-24
+                    QUALIFIED: service.ocr_service._quad_to_bbox
+                └── _quad_to_bbox(points)
+                    LOCATION: service/ocr_service.py:19-24
+                    QUALIFIED: service.ocr_service._quad_to_bbox
+            └── detect_checkboxes_ocr_anchored(image_or_path, raw_elements)
+                LOCATION: service/detection_service.py:294-322
+                QUALIFIED: service.detection_service.detect_checkboxes_ocr_anchored
+                └── detect_checkboxes_visual(image, ocr_elements, options)
+                    LOCATION: util/checkbox_utils.py:98-182
+                    QUALIFIED: util.checkbox_utils.detect_checkboxes_visual
+                    └── _load_gray(image_or_path)
+                        LOCATION: util/image_utils.py:13-17
+                        QUALIFIED: util.image_utils._load_gray
+                        └── _load_image(image_or_path)
+                            LOCATION: util/image_utils.py:4-10
+                            QUALIFIED: util.image_utils._load_image
+                    └── _threshold_gray(gray)
+                        LOCATION: util/image_utils.py:63-71
+                        QUALIFIED: util.image_utils._threshold_gray
+                    └── _classify_window(bin_img, x1, y1, x2, y2)
+                        LOCATION: util/checkbox_utils.py:28-43
+                        QUALIFIED: util.checkbox_utils._classify_window
+                    └── _looks_like_box_window(edge_dark, inner_dark, box_w, box_h)
+                        LOCATION: util/checkbox_utils.py:71-83
+                        QUALIFIED: util.checkbox_utils._looks_like_box_window
+                    └── _neighbor_text_overlap(bin_img, win, min_ink_cols)
+                        LOCATION: util/checkbox_utils.py:86-95
+                        QUALIFIED: util.checkbox_utils._neighbor_text_overlap
+                    └── _mark_kind(bin_img, bbox)
+                        LOCATION: util/checkbox_utils.py:46-68
+                        QUALIFIED: util.checkbox_utils._mark_kind
+                └── checkbox_from_leading_mark(element, image)
+                    LOCATION: util/checkbox_utils.py:231-277
+                    QUALIFIED: util.checkbox_utils.checkbox_from_leading_mark
+                └── merge_checkbox_candidates(pixel_candidates, mark_candidates)
+                    LOCATION: util/checkbox_utils.py:280-305
+                    QUALIFIED: util.checkbox_utils.merge_checkbox_candidates
+            └── strip_leading_option_mark(text, has_box)
+                LOCATION: util/checkbox_utils.py:185-212
+                QUALIFIED: util.checkbox_utils.strip_leading_option_mark
+                └── _looks_like_mark_context(text)
+                    LOCATION: util/checkbox_utils.py:215-218
+                    QUALIFIED: util.checkbox_utils._looks_like_mark_context
+            └── strip_leading_option_mark(text, has_box)
+                LOCATION: util/checkbox_utils.py:185-212
+                QUALIFIED: util.checkbox_utils.strip_leading_option_mark
+                └── _looks_like_mark_context(text)
+                    LOCATION: util/checkbox_utils.py:215-218
+                    QUALIFIED: util.checkbox_utils._looks_like_mark_context
+            └── detect_and_fuse_tables(image, elements)
+                LOCATION: service/table_service.py:309-445
+                QUALIFIED: service.table_service.detect_and_fuse_tables
+                └── detect_table_candidates(image_or_gray, elements, min_area_ratio, min_width_ratio, min_height_ratio)
+                    LOCATION: util/table_utils.py:87-233
+                    QUALIFIED: util.table_utils.detect_table_candidates
+                    └── _load_gray(image_or_path)
+                        LOCATION: util/image_utils.py:13-17
+                        QUALIFIED: util.image_utils._load_gray
+                        └── _load_image(image_or_path)
+                            LOCATION: util/image_utils.py:4-10
+                            QUALIFIED: util.image_utils._load_image
+                    └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                        LOCATION: util/line_utils.py:22-90
+                        QUALIFIED: util.line_utils.detect_line_segments
+                        └── _load_gray(image_or_path)
+                            LOCATION: util/image_utils.py:13-17
+                            QUALIFIED: util.image_utils._load_gray
+                            └── _load_image(image_or_path)
+                                LOCATION: util/image_utils.py:4-10
+                                QUALIFIED: util.image_utils._load_image
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                    └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                        LOCATION: util/line_utils.py:22-90
+                        QUALIFIED: util.line_utils.detect_line_segments
+                        └── _load_gray(image_or_path)
+                            LOCATION: util/image_utils.py:13-17
+                            QUALIFIED: util.image_utils._load_gray
+                            └── _load_image(image_or_path)
+                                LOCATION: util/image_utils.py:4-10
+                                QUALIFIED: util.image_utils._load_image
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                    └── merge_collinear_horizontal(segments, y_tol, gap_tol_ratio, max_gap_px)
+                        LOCATION: util/line_utils.py:93-124
+                        QUALIFIED: util.line_utils.merge_collinear_horizontal
+                    └── merge_collinear_vertical(segments, x_tol, gap_tol_ratio, max_gap_px)
+                        LOCATION: util/line_utils.py:127-154
+                        QUALIFIED: util.line_utils.merge_collinear_vertical
+                    └── _extend_segments(segments, padding, orientation)
+                        LOCATION: util/table_utils.py:65-84
+                        QUALIFIED: util.table_utils._extend_segments
+                    └── _extend_segments(segments, padding, orientation)
+                        LOCATION: util/table_utils.py:65-84
+                        QUALIFIED: util.table_utils._extend_segments
+                    └── segments_to_mask(segments, shape, orientation, thickness)
+                        LOCATION: util/line_utils.py:157-172
+                        QUALIFIED: util.line_utils.segments_to_mask
+                    └── segments_to_mask(segments, shape, orientation, thickness)
+                        LOCATION: util/line_utils.py:157-172
+                        QUALIFIED: util.line_utils.segments_to_mask
+                    └── _segment_within(seg, bbox, orientation)
+                        LOCATION: util/table_utils.py:236-250
+                        QUALIFIED: util.table_utils._segment_within
+                    └── _segment_within(seg, bbox, orientation)
+                        LOCATION: util/table_utils.py:236-250
+                        QUALIFIED: util.table_utils._segment_within
+                    └── segment_intersections(horizontals, verticals)
+                        LOCATION: util/line_utils.py:175-191
+                        QUALIFIED: util.line_utils.segment_intersections
+                    └── _score_candidate(candidate, gray, elements)
+                        LOCATION: util/table_utils.py:412-468
+                        QUALIFIED: util.table_utils._score_candidate
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+                        └── _border_completeness(gray, bbox, sample)
+                            LOCATION: util/table_utils.py:471-502
+                            QUALIFIED: util.table_utils._border_completeness
+                        └── _point_in_bbox(point, bbox)
+                            LOCATION: util/geometry_utils.py:76-79
+                            QUALIFIED: util.geometry_utils._point_in_bbox
+                        └── _bbox_center(bbox)
+                            LOCATION: util/geometry_utils.py:6-8
+                            QUALIFIED: util.geometry_utils._bbox_center
+                    └── _merge_duplicate_candidates(candidates, iou_threshold)
+                        LOCATION: util/table_utils.py:48-63
+                        QUALIFIED: util.table_utils._merge_duplicate_candidates
+                        └── _iou(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:58-73
+                            QUALIFIED: util.geometry_utils._iou
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _grid_boundaries(candidate)
+                        LOCATION: util/table_utils.py:253-293
+                        QUALIFIED: util.table_utils._grid_boundaries
+                        └── _unique_sorted(values, tol)
+                            LOCATION: util/table_utils.py:296-301
+                            QUALIFIED: util.table_utils._unique_sorted
+                        └── _unique_sorted(values, tol)
+                            LOCATION: util/table_utils.py:296-301
+                            QUALIFIED: util.table_utils._unique_sorted
+                    └── build_cv_structure(bbox, rows, columns, verticals, horizontals)
+                        LOCATION: util/table_utils.py:304-391
+                        QUALIFIED: util.table_utils.build_cv_structure
+                        └── _vertical_edge_in_band(x, top, bottom, verticals, tol)
+                            LOCATION: util/table_utils.py:394-398
+                            QUALIFIED: util.table_utils._vertical_edge_in_band
+                        └── _horizontal_edge_in_span(y, left, right, horizontals, tol)
+                            LOCATION: util/table_utils.py:401-405
+                            QUALIFIED: util.table_utils._horizontal_edge_in_span
+                └── get_table_model_service()
+                    LOCATION: service/table_model_service.py:403-410
+                    QUALIFIED: service.table_model_service.get_table_model_service
+                └── _iou(bbox_a, bbox_b)
+                    LOCATION: util/geometry_utils.py:58-73
+                    QUALIFIED: util.geometry_utils._iou
+                    └── _bbox_intersection(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:11-20
+                        QUALIFIED: util.geometry_utils._bbox_intersection
+                └── _is_single_column_stack(cv_candidate)
+                    LOCATION: service/table_service.py:710-723
+                    QUALIFIED: service.table_service._is_single_column_stack
+                └── detect_vertical_lines(image_or_path, min_height_ratio)
+                    LOCATION: service/detection_service.py:264-291
+                    QUALIFIED: service.detection_service.detect_vertical_lines
+                    └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                        LOCATION: util/line_utils.py:22-90
+                        QUALIFIED: util.line_utils.detect_line_segments
+                        └── _load_gray(image_or_path)
+                            LOCATION: util/image_utils.py:13-17
+                            QUALIFIED: util.image_utils._load_gray
+                            └── _load_image(image_or_path)
+                                LOCATION: util/image_utils.py:4-10
+                                QUALIFIED: util.image_utils._load_image
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                    └── merge_collinear_vertical(segments, x_tol, gap_tol_ratio, max_gap_px)
+                        LOCATION: util/line_utils.py:127-154
+                        QUALIFIED: util.line_utils.merge_collinear_vertical
+                └── _clamp_bbox(bbox, width, height)
+                    LOCATION: service/table_service.py:696-702
+                    QUALIFIED: service.table_service._clamp_bbox
+                └── _is_single_column_stack(cv_candidate)
+                    LOCATION: service/table_service.py:710-723
+                    QUALIFIED: service.table_service._is_single_column_stack
+                └── detect_vertical_lines(image_or_path, min_height_ratio)
+                    LOCATION: service/detection_service.py:264-291
+                    QUALIFIED: service.detection_service.detect_vertical_lines
+                    └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                        LOCATION: util/line_utils.py:22-90
+                        QUALIFIED: util.line_utils.detect_line_segments
+                        └── _load_gray(image_or_path)
+                            LOCATION: util/image_utils.py:13-17
+                            QUALIFIED: util.image_utils._load_gray
+                            └── _load_image(image_or_path)
+                                LOCATION: util/image_utils.py:4-10
+                                QUALIFIED: util.image_utils._load_image
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                    └── merge_collinear_vertical(segments, x_tol, gap_tol_ratio, max_gap_px)
+                        LOCATION: util/line_utils.py:127-154
+                        QUALIFIED: util.line_utils.merge_collinear_vertical
+                └── _clamp_bbox(bbox, width, height)
+                    LOCATION: service/table_service.py:696-702
+                    QUALIFIED: service.table_service._clamp_bbox
+            └── _iou(bbox_a, bbox_b)
+                LOCATION: util/geometry_utils.py:58-73
+                QUALIFIED: util.geometry_utils._iou
+                └── _bbox_intersection(bbox_a, bbox_b)
+                    LOCATION: util/geometry_utils.py:11-20
+                    QUALIFIED: util.geometry_utils._bbox_intersection
+            └── detect_checkbox_groups(image_or_gray, elements, median_text_h, exclude_bboxes, min_options)
+                LOCATION: util/checkbox_group_utils.py:620-711
+                QUALIFIED: util.checkbox_group_utils.detect_checkbox_groups
+                └── _load_gray(image_or_path)
+                    LOCATION: util/image_utils.py:13-17
+                    QUALIFIED: util.image_utils._load_gray
+                    └── _load_image(image_or_path)
+                        LOCATION: util/image_utils.py:4-10
+                        QUALIFIED: util.image_utils._load_image
+                └── _checkbox_candidates(gray, elements, median_text_h, exclude_bboxes)
+                    LOCATION: util/checkbox_group_utils.py:270-394
+                    QUALIFIED: util.checkbox_group_utils._checkbox_candidates
+                    └── _threshold_gray(gray)
+                        LOCATION: util/image_utils.py:63-71
+                        QUALIFIED: util.image_utils._threshold_gray
+                    └── _checkbox_scale(median_text_h)
+                        LOCATION: util/checkbox_group_utils.py:134-148
+                        QUALIFIED: util.checkbox_group_utils._checkbox_scale
+                    └── _grid_line_masks(bin_img, min_len)
+                        LOCATION: util/checkbox_group_utils.py:151-166
+                        QUALIFIED: util.checkbox_group_utils._grid_line_masks
+                    └── _accept(x, y, cw, ch)
+                        LOCATION: util/checkbox_group_utils.py:320-345
+                        QUALIFIED: util.checkbox_group_utils._accept
+                        └── _is_selection_box(bin_img, x, y, w, h)
+                            LOCATION: util/checkbox_group_utils.py:233-267
+                            QUALIFIED: util.checkbox_group_utils._is_selection_box
+                            └── _ring_density(bin_img, x1, y1, x2, y2, band_frac)
+                                LOCATION: util/checkbox_group_utils.py:69-95
+                                QUALIFIED: util.checkbox_group_utils._ring_density
+                            └── _classify_window(bin_img, x1, y1, x2, y2)
+                                LOCATION: util/checkbox_utils.py:28-43
+                                QUALIFIED: util.checkbox_utils._classify_window
+                            └── _ring_side_darkness(bin_img, x1, y1, x2, y2, band_frac)
+                                LOCATION: util/checkbox_group_utils.py:98-127
+                                QUALIFIED: util.checkbox_group_utils._ring_side_darkness
+                        └── _has_inner_word(box, elements)
+                            LOCATION: util/checkbox_group_utils.py:217-230
+                            QUALIFIED: util.checkbox_group_utils._has_inner_word
+                        └── _is_grid_cell(box, hmask, vmask)
+                            LOCATION: util/checkbox_group_utils.py:198-214
+                            QUALIFIED: util.checkbox_group_utils._is_grid_cell
+                            └── _edge_line_fraction(mask, bbox, edge)
+                                LOCATION: util/checkbox_group_utils.py:169-195
+                                QUALIFIED: util.checkbox_group_utils._edge_line_fraction
+                            └── _edge_line_fraction(mask, bbox, edge)
+                                LOCATION: util/checkbox_group_utils.py:169-195
+                                QUALIFIED: util.checkbox_group_utils._edge_line_fraction
+                    └── _accept(x, y, cw, ch)
+                        LOCATION: util/checkbox_group_utils.py:320-345
+                        QUALIFIED: util.checkbox_group_utils._accept
+                        └── _is_selection_box(bin_img, x, y, w, h)
+                            LOCATION: util/checkbox_group_utils.py:233-267
+                            QUALIFIED: util.checkbox_group_utils._is_selection_box
+                            └── _ring_density(bin_img, x1, y1, x2, y2, band_frac)
+                                LOCATION: util/checkbox_group_utils.py:69-95
+                                QUALIFIED: util.checkbox_group_utils._ring_density
+                            └── _classify_window(bin_img, x1, y1, x2, y2)
+                                LOCATION: util/checkbox_utils.py:28-43
+                                QUALIFIED: util.checkbox_utils._classify_window
+                            └── _ring_side_darkness(bin_img, x1, y1, x2, y2, band_frac)
+                                LOCATION: util/checkbox_group_utils.py:98-127
+                                QUALIFIED: util.checkbox_group_utils._ring_side_darkness
+                        └── _has_inner_word(box, elements)
+                            LOCATION: util/checkbox_group_utils.py:217-230
+                            QUALIFIED: util.checkbox_group_utils._has_inner_word
+                        └── _is_grid_cell(box, hmask, vmask)
+                            LOCATION: util/checkbox_group_utils.py:198-214
+                            QUALIFIED: util.checkbox_group_utils._is_grid_cell
+                            └── _edge_line_fraction(mask, bbox, edge)
+                                LOCATION: util/checkbox_group_utils.py:169-195
+                                QUALIFIED: util.checkbox_group_utils._edge_line_fraction
+                            └── _edge_line_fraction(mask, bbox, edge)
+                                LOCATION: util/checkbox_group_utils.py:169-195
+                                QUALIFIED: util.checkbox_group_utils._edge_line_fraction
+                └── _bind_options(checkboxes, elements, median_text_h)
+                    LOCATION: util/checkbox_group_utils.py:410-463
+                    QUALIFIED: util.checkbox_group_utils._bind_options
+                    └── strip_leading_option_mark(text, has_box)
+                        LOCATION: util/checkbox_utils.py:185-212
+                        QUALIFIED: util.checkbox_utils.strip_leading_option_mark
+                        └── _looks_like_mark_context(text)
+                            LOCATION: util/checkbox_utils.py:215-218
+                            QUALIFIED: util.checkbox_utils._looks_like_mark_context
+                └── _cluster_options(pairs, median_text_h, page_width)
+                    LOCATION: util/checkbox_group_utils.py:470-537
+                    QUALIFIED: util.checkbox_group_utils._cluster_options
+                    └── union(a, b)
+                        LOCATION: util/checkbox_group_utils.py:510-513
+                        QUALIFIED: util.checkbox_group_utils.union
+                        └── find(x)
+                            LOCATION: util/checkbox_group_utils.py:504-508
+                            QUALIFIED: util.checkbox_group_utils.find
+                        └── find(x)
+                            LOCATION: util/checkbox_group_utils.py:504-508
+                            QUALIFIED: util.checkbox_group_utils.find
+                    └── _horizontal_edge_gap(box, text_bbox)
+                        LOCATION: util/checkbox_group_utils.py:401-407
+                        QUALIFIED: util.checkbox_group_utils._horizontal_edge_gap
+                    └── union(a, b)
+                        LOCATION: util/checkbox_group_utils.py:510-513
+                        QUALIFIED: util.checkbox_group_utils.union
+                        └── find(x)
+                            LOCATION: util/checkbox_group_utils.py:504-508
+                            QUALIFIED: util.checkbox_group_utils.find
+                        └── find(x)
+                            LOCATION: util/checkbox_group_utils.py:504-508
+                            QUALIFIED: util.checkbox_group_utils.find
+                    └── find(x)
+                        LOCATION: util/checkbox_group_utils.py:504-508
+                        QUALIFIED: util.checkbox_group_utils.find
+                └── _merge_same_question_rows(clusters, wrap_band)
+                    LOCATION: util/checkbox_group_utils.py:553-613
+                    QUALIFIED: util.checkbox_group_utils._merge_same_question_rows
+                    └── _extent(group)
+                        LOCATION: util/checkbox_group_utils.py:578-583
+                        QUALIFIED: util.checkbox_group_utils._extent
+                    └── _extent(group)
+                        LOCATION: util/checkbox_group_utils.py:578-583
+                        QUALIFIED: util.checkbox_group_utils._extent
+                    └── _extent(group)
+                        LOCATION: util/checkbox_group_utils.py:578-583
+                        QUALIFIED: util.checkbox_group_utils._extent
+                    └── _extent(group)
+                        LOCATION: util/checkbox_group_utils.py:578-583
+                        QUALIFIED: util.checkbox_group_utils._extent
+                └── _group_macro_bbox(group)
+                    LOCATION: util/checkbox_group_utils.py:540-550
+                    QUALIFIED: util.checkbox_group_utils._group_macro_bbox
+                └── _group_macro_bbox(group)
+                    LOCATION: util/checkbox_group_utils.py:540-550
+                    QUALIFIED: util.checkbox_group_utils._group_macro_bbox
+            └── process_form_fields(image, elements, table_bboxes, checkboxes, checkbox_group_bboxes)
+                LOCATION: service/field_service.py:21-64
+                QUALIFIED: service.field_service.process_form_fields
+                └── detect_input_regions(image_or_gray, elements, table_bboxes, checkboxes, checkbox_group_bboxes)
+                    LOCATION: util/form_utils.py:68-328
+                    QUALIFIED: util.form_utils.detect_input_regions
+                    └── _load_gray(image_or_path)
+                        LOCATION: util/image_utils.py:13-17
+                        QUALIFIED: util.image_utils._load_gray
+                        └── _load_image(image_or_path)
+                            LOCATION: util/image_utils.py:4-10
+                            QUALIFIED: util.image_utils._load_image
+                    └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                        LOCATION: util/line_utils.py:22-90
+                        QUALIFIED: util.line_utils.detect_line_segments
+                        └── _load_gray(image_or_path)
+                            LOCATION: util/image_utils.py:13-17
+                            QUALIFIED: util.image_utils._load_gray
+                            └── _load_image(image_or_path)
+                                LOCATION: util/image_utils.py:4-10
+                                QUALIFIED: util.image_utils._load_image
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                    └── _dedup_underline_segments(segments, y_tol, gap_tol, elements)
+                        LOCATION: util/form_utils.py:806-835
+                        QUALIFIED: util.form_utils._dedup_underline_segments
+                        └── _gap_between_lines_has_text(line_a, line_b, elements, y_tol)
+                            LOCATION: util/form_utils.py:770-803
+                            QUALIFIED: util.form_utils._gap_between_lines_has_text
+                    └── _inside_any_table(bbox, table_bboxes, overlap_ratio)
+                        LOCATION: util/form_utils.py:756-767
+                        QUALIFIED: util.form_utils._inside_any_table
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _is_field_continuation(all_segments, seg, median_text_h)
+                        LOCATION: util/form_utils.py:45-65
+                        QUALIFIED: util.form_utils._is_field_continuation
+                    └── _detect_box_regions(gray, elements, min_ratio, max_ratio)
+                        LOCATION: util/form_utils.py:356-433
+                        QUALIFIED: util.form_utils._detect_box_regions
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                        └── _box_contains_text(bbox, elements)
+                            LOCATION: util/form_utils.py:331-353
+                            QUALIFIED: util.form_utils._box_contains_text
+                        └── _iou(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:58-73
+                            QUALIFIED: util.geometry_utils._iou
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _inside_any_table(bbox, table_bboxes, overlap_ratio)
+                        LOCATION: util/form_utils.py:756-767
+                        QUALIFIED: util.form_utils._inside_any_table
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _iou(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:58-73
+                        QUALIFIED: util.geometry_utils._iou
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _intersection_over_area(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:39-49
+                        QUALIFIED: util.geometry_utils._intersection_over_area
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+                    └── _caption_for_unlabelled_box(box_bbox, elements, median_text_h)
+                        LOCATION: util/form_utils.py:1198-1231
+                        QUALIFIED: util.form_utils._caption_for_unlabelled_box
+                        └── _caption_candidates_below(bbox, elements, median_text_h, ink)
+                            LOCATION: util/form_utils.py:853-903
+                            QUALIFIED: util.form_utils._caption_candidates_below
+                    └── _is_box_container(box, all_boxes)
+                        LOCATION: util/form_utils.py:169-194
+                        QUALIFIED: util.form_utils._is_box_container
+                    └── _detect_caption_fields(gray, elements, median_text_h)
+                        LOCATION: util/form_utils.py:1010-1195
+                        QUALIFIED: util.form_utils._detect_caption_fields
+                        └── _scan_writing_rules(gray, thr, min_piece, bridge, min_len)
+                            LOCATION: util/form_utils.py:950-1007
+                            QUALIFIED: util.form_utils._scan_writing_rules
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                        └── _caption_candidates_below(bbox, elements, median_text_h, ink)
+                            LOCATION: util/form_utils.py:853-903
+                            QUALIFIED: util.form_utils._caption_candidates_below
+                        └── ink_map_for(line_y)
+                            LOCATION: util/form_utils.py:1122-1130
+                            QUALIFIED: util.form_utils.ink_map_for
+                            └── _caption_ink_height(gray, eb, line_y, mh, thr)
+                                LOCATION: util/form_utils.py:906-947
+                                QUALIFIED: util.form_utils._caption_ink_height
+                        └── text_above(line_y, line_x1, line_x2)
+                            LOCATION: util/form_utils.py:1092-1112
+                            QUALIFIED: util.form_utils.text_above
+                        └── box_header_line(line_y, line_x1, line_x2, cap)
+                            LOCATION: util/form_utils.py:1068-1090
+                            QUALIFIED: util.form_utils.box_header_line
+                        └── box_header_line(line_y, line_x1, line_x2, cap)
+                            LOCATION: util/form_utils.py:1068-1090
+                            QUALIFIED: util.form_utils.box_header_line
+                    └── _detect_grid_cells(gray, elements, median_text_h, table_bboxes, checkbox_group_bboxes, row_rule_ratio, col_span_ratio, min_blank_ratio)
+                        LOCATION: util/form_utils.py:485-664
+                        QUALIFIED: util.form_utils._detect_grid_cells
+                        └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                            LOCATION: util/line_utils.py:22-90
+                            QUALIFIED: util.line_utils.detect_line_segments
+                            └── _load_gray(image_or_path)
+                                LOCATION: util/image_utils.py:13-17
+                                QUALIFIED: util.image_utils._load_gray
+                                └── _load_image(image_or_path)
+                                    LOCATION: util/image_utils.py:4-10
+                                    QUALIFIED: util.image_utils._load_image
+                            └── _threshold_gray(gray)
+                                LOCATION: util/image_utils.py:63-71
+                                QUALIFIED: util.image_utils._threshold_gray
+                        └── merge_collinear_horizontal(segments, y_tol, gap_tol_ratio, max_gap_px)
+                            LOCATION: util/line_utils.py:93-124
+                            QUALIFIED: util.line_utils.merge_collinear_horizontal
+                        └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                            LOCATION: util/line_utils.py:22-90
+                            QUALIFIED: util.line_utils.detect_line_segments
+                            └── _load_gray(image_or_path)
+                                LOCATION: util/image_utils.py:13-17
+                                QUALIFIED: util.image_utils._load_gray
+                                └── _load_image(image_or_path)
+                                    LOCATION: util/image_utils.py:4-10
+                                    QUALIFIED: util.image_utils._load_image
+                            └── _threshold_gray(gray)
+                                LOCATION: util/image_utils.py:63-71
+                                QUALIFIED: util.image_utils._threshold_gray
+                        └── merge_collinear_vertical(segments, x_tol, gap_tol_ratio, max_gap_px)
+                            LOCATION: util/line_utils.py:127-154
+                            QUALIFIED: util.line_utils.merge_collinear_vertical
+                        └── _inside_any_table(bbox, table_bboxes, overlap_ratio)
+                            LOCATION: util/form_utils.py:756-767
+                            QUALIFIED: util.form_utils._inside_any_table
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                        └── _intersection_over_area(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:39-49
+                            QUALIFIED: util.geometry_utils._intersection_over_area
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                        └── _cell_top_text(cell, elements, median_text_h)
+                            LOCATION: util/form_utils.py:436-482
+                            QUALIFIED: util.form_utils._cell_top_text
+                        └── _band_contains_text(top, bottom, elements)
+                            LOCATION: util/form_utils.py:667-680
+                            QUALIFIED: util.form_utils._band_contains_text
+                    └── _detect_blank_gaps(elements, gray, gap_ratio)
+                        LOCATION: util/form_utils.py:683-753
+                        QUALIFIED: util.form_utils._detect_blank_gaps
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                    └── _inside_any_table(bbox, table_bboxes, overlap_ratio)
+                        LOCATION: util/form_utils.py:756-767
+                        QUALIFIED: util.form_utils._inside_any_table
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _iou(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:58-73
+                        QUALIFIED: util.geometry_utils._iou
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _intersection_over_area(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:39-49
+                        QUALIFIED: util.geometry_utils._intersection_over_area
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+                    └── _iou(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:58-73
+                        QUALIFIED: util.geometry_utils._iou
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                └── split_compound_elements(elements, input_regions)
+                    LOCATION: util/form_utils.py:1795-1816
+                    QUALIFIED: util.form_utils.split_compound_elements
+                    └── split_compound_ocr_element(element, input_regions, min_region_overlap)
+                        LOCATION: util/form_utils.py:1373-1522
+                        QUALIFIED: util.form_utils.split_compound_ocr_element
+                        └── _token_boxes(element)
+                            LOCATION: util/form_utils.py:1238-1292
+                            QUALIFIED: util.form_utils._token_boxes
+                        └── _token_region_window(token, region)
+                            LOCATION: util/form_utils.py:1338-1370
+                            QUALIFIED: util.form_utils._token_region_window
+                            └── _region_line_cy(region)
+                                LOCATION: util/form_utils.py:1295-1298
+                                QUALIFIED: util.form_utils._region_line_cy
+                            └── _value_baseline_band(region)
+                                LOCATION: util/form_utils.py:1301-1305
+                                QUALIFIED: util.form_utils._value_baseline_band
+                            └── _bbox_center(bbox)
+                                LOCATION: util/geometry_utils.py:6-8
+                                QUALIFIED: util.geometry_utils._bbox_center
+                            └── _point_in_bbox(point, bbox)
+                                LOCATION: util/geometry_utils.py:76-79
+                                QUALIFIED: util.geometry_utils._point_in_bbox
+                        └── _bbox_center(bbox)
+                            LOCATION: util/geometry_utils.py:6-8
+                            QUALIFIED: util.geometry_utils._bbox_center
+                        └── _token_region_window(token, region)
+                            LOCATION: util/form_utils.py:1338-1370
+                            QUALIFIED: util.form_utils._token_region_window
+                            └── _region_line_cy(region)
+                                LOCATION: util/form_utils.py:1295-1298
+                                QUALIFIED: util.form_utils._region_line_cy
+                            └── _value_baseline_band(region)
+                                LOCATION: util/form_utils.py:1301-1305
+                                QUALIFIED: util.form_utils._value_baseline_band
+                            └── _bbox_center(bbox)
+                                LOCATION: util/geometry_utils.py:6-8
+                                QUALIFIED: util.geometry_utils._bbox_center
+                            └── _point_in_bbox(point, bbox)
+                                LOCATION: util/geometry_utils.py:76-79
+                                QUALIFIED: util.geometry_utils._point_in_bbox
+                        └── _intersection_over_area(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:39-49
+                            QUALIFIED: util.geometry_utils._intersection_over_area
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                        └── _region_line_cy(region)
+                            LOCATION: util/form_utils.py:1295-1298
+                            QUALIFIED: util.form_utils._region_line_cy
+                        └── _union_bbox(bboxes)
+                            LOCATION: util/geometry_utils.py:100-105
+                            QUALIFIED: util.geometry_utils._union_bbox
+                        └── _region_suffix(region_id)
+                            LOCATION: util/form_utils.py:1525-1529
+                            QUALIFIED: util.form_utils._region_suffix
+                        └── _bbox_center(bbox)
+                            LOCATION: util/geometry_utils.py:6-8
+                            QUALIFIED: util.geometry_utils._bbox_center
+                        └── _union_bbox(bboxes)
+                            LOCATION: util/geometry_utils.py:100-105
+                            QUALIFIED: util.geometry_utils._union_bbox
+                        └── _bbox_center(bbox)
+                            LOCATION: util/geometry_utils.py:6-8
+                            QUALIFIED: util.geometry_utils._bbox_center
+                └── build_form_fields(elements, input_regions)
+                    LOCATION: util/form_utils.py:1683-1792
+                    QUALIFIED: util.form_utils.build_form_fields
+                    └── assign_ocr_to_input_regions(elements, input_regions)
+                        LOCATION: util/form_utils.py:1532-1619
+                        QUALIFIED: util.form_utils.assign_ocr_to_input_regions
+                        └── _value_claims_region(el, region)
+                            LOCATION: util/form_utils.py:1308-1335
+                            QUALIFIED: util.form_utils._value_claims_region
+                            └── _bbox_center(bbox)
+                                LOCATION: util/geometry_utils.py:6-8
+                                QUALIFIED: util.geometry_utils._bbox_center
+                            └── _region_line_cy(region)
+                                LOCATION: util/form_utils.py:1295-1298
+                                QUALIFIED: util.form_utils._region_line_cy
+                            └── _value_baseline_band(region)
+                                LOCATION: util/form_utils.py:1301-1305
+                                QUALIFIED: util.form_utils._value_baseline_band
+                    └── _repair_date_range(text)
+                        LOCATION: util/form_utils.py:1622-1680
+                        QUALIFIED: util.form_utils._repair_date_range
+                        └── _valid(dd, mm)
+                            LOCATION: util/form_utils.py:1636-1641
+                            QUALIFIED: util.form_utils._valid
+                        └── _valid(dd, mm)
+                            LOCATION: util/form_utils.py:1636-1641
+                            QUALIFIED: util.form_utils._valid
+                        └── _valid(dd, mm)
+                            LOCATION: util/form_utils.py:1636-1641
+                            QUALIFIED: util.form_utils._valid
+                    └── _union_bbox(bboxes)
+                        LOCATION: util/geometry_utils.py:100-105
+                        QUALIFIED: util.geometry_utils._union_bbox
+                    └── _union_bbox(bboxes)
+                        LOCATION: util/geometry_utils.py:100-105
+                        QUALIFIED: util.geometry_utils._union_bbox
+            └── detect_horizontal_lines(image_or_path, min_width_ratio)
+                LOCATION: service/detection_service.py:222-261
+                QUALIFIED: service.detection_service.detect_horizontal_lines
+                └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                    LOCATION: util/line_utils.py:22-90
+                    QUALIFIED: util.line_utils.detect_line_segments
+                    └── _load_gray(image_or_path)
+                        LOCATION: util/image_utils.py:13-17
+                        QUALIFIED: util.image_utils._load_gray
+                        └── _load_image(image_or_path)
+                            LOCATION: util/image_utils.py:4-10
+                            QUALIFIED: util.image_utils._load_image
+                    └── _threshold_gray(gray)
+                        LOCATION: util/image_utils.py:63-71
+                        QUALIFIED: util.image_utils._threshold_gray
+                └── merge_collinear_horizontal(segments, y_tol, gap_tol_ratio, max_gap_px)
+                    LOCATION: util/line_utils.py:93-124
+                    QUALIFIED: util.line_utils.merge_collinear_horizontal
+            └── detect_vertical_lines(image_or_path, min_height_ratio)
+                LOCATION: service/detection_service.py:264-291
+                QUALIFIED: service.detection_service.detect_vertical_lines
+                └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                    LOCATION: util/line_utils.py:22-90
+                    QUALIFIED: util.line_utils.detect_line_segments
+                    └── _load_gray(image_or_path)
+                        LOCATION: util/image_utils.py:13-17
+                        QUALIFIED: util.image_utils._load_gray
+                        └── _load_image(image_or_path)
+                            LOCATION: util/image_utils.py:4-10
+                            QUALIFIED: util.image_utils._load_image
+                    └── _threshold_gray(gray)
+                        LOCATION: util/image_utils.py:63-71
+                        QUALIFIED: util.image_utils._threshold_gray
+                └── merge_collinear_vertical(segments, x_tol, gap_tol_ratio, max_gap_px)
+                    LOCATION: util/line_utils.py:127-154
+                    QUALIFIED: util.line_utils.merge_collinear_vertical
+            └── detect_rectangular_regions(image_or_path, min_area_ratio)
+                LOCATION: service/detection_service.py:26-105
+                QUALIFIED: service.detection_service.detect_rectangular_regions
+                └── _load_gray(image_or_path)
+                    LOCATION: util/image_utils.py:13-17
+                    QUALIFIED: util.image_utils._load_gray
+                    └── _load_image(image_or_path)
+                        LOCATION: util/image_utils.py:4-10
+                        QUALIFIED: util.image_utils._load_image
+                └── _threshold_gray(gray)
+                    LOCATION: util/image_utils.py:63-71
+                    QUALIFIED: util.image_utils._threshold_gray
+                └── _iou(bbox_a, bbox_b)
+                    LOCATION: util/geometry_utils.py:58-73
+                    QUALIFIED: util.geometry_utils._iou
+                    └── _bbox_intersection(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:11-20
+                        QUALIFIED: util.geometry_utils._bbox_intersection
+            └── finalize_tables(fused, doc_rep, image)
+                LOCATION: service/table_service.py:621-693
+                QUALIFIED: service.table_service.finalize_tables
+                └── _iou(bbox_a, bbox_b)
+                    LOCATION: util/geometry_utils.py:58-73
+                    QUALIFIED: util.geometry_utils._iou
+                    └── _bbox_intersection(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:11-20
+                        QUALIFIED: util.geometry_utils._bbox_intersection
+                └── _drop_edge_slivers(cells)
+                    LOCATION: service/table_service.py:747-807
+                    QUALIFIED: service.table_service._drop_edge_slivers
+                └── _assign_ocr_to_cells(elements, cells, table_bbox)
+                    LOCATION: service/table_service.py:157-267
+                    QUALIFIED: service.table_service._assign_ocr_to_cells
+                    └── _bbox_center(bbox)
+                        LOCATION: util/geometry_utils.py:6-8
+                        QUALIFIED: util.geometry_utils._bbox_center
+                    └── _bbox_center(bbox)
+                        LOCATION: util/geometry_utils.py:6-8
+                        QUALIFIED: util.geometry_utils._bbox_center
+                    └── _bbox_center(bbox)
+                        LOCATION: util/geometry_utils.py:6-8
+                        QUALIFIED: util.geometry_utils._bbox_center
+                    └── _cell_for_point(cells, point)
+                        LOCATION: service/table_service.py:270-278
+                        QUALIFIED: service.table_service._cell_for_point
+                        └── _point_in_bbox(point, bbox)
+                            LOCATION: util/geometry_utils.py:76-79
+                            QUALIFIED: util.geometry_utils._point_in_bbox
+                        └── _area(bbox)
+                            LOCATION: service/table_service.py:292-294
+                            QUALIFIED: service.table_service._area
+                    └── _point_in_bbox(point, bbox)
+                        LOCATION: util/geometry_utils.py:76-79
+                        QUALIFIED: util.geometry_utils._point_in_bbox
+                    └── _cell_for_ioa(cells, bbox)
+                        LOCATION: service/table_service.py:281-289
+                        QUALIFIED: service.table_service._cell_for_ioa
+                        └── _intersection_over_area(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:39-49
+                            QUALIFIED: util.geometry_utils._intersection_over_area
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                    └── _cell_for_point(cells, point)
+                        LOCATION: service/table_service.py:270-278
+                        QUALIFIED: service.table_service._cell_for_point
+                        └── _point_in_bbox(point, bbox)
+                            LOCATION: util/geometry_utils.py:76-79
+                            QUALIFIED: util.geometry_utils._point_in_bbox
+                        └── _area(bbox)
+                            LOCATION: service/table_service.py:292-294
+                            QUALIFIED: service.table_service._area
+                    └── _cell_for_ioa(cells, bbox)
+                        LOCATION: service/table_service.py:281-289
+                        QUALIFIED: service.table_service._cell_for_ioa
+                        └── _intersection_over_area(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:39-49
+                            QUALIFIED: util.geometry_utils._intersection_over_area
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+        └── build_template_fields(doc_rep, image_width, image_height)
+            LOCATION: util/template_utils.py:685-1090
+            QUALIFIED: util.template_utils.build_template_fields
+            └── _label_for_region(region, elements, median_text_h, exclude_texts)
+                LOCATION: util/template_utils.py:270-465
+                QUALIFIED: util.template_utils._label_for_region
+                └── _find_straddle_prefix(region, elements, median_text_h, tol)
+                    LOCATION: util/template_utils.py:164-227
+                    QUALIFIED: util.template_utils._find_straddle_prefix
+                └── _region_gap(rb, eb)
+                    LOCATION: util/template_utils.py:99-105
+                    QUALIFIED: util.template_utils._region_gap
+                └── _region_gap(rb, eb)
+                    LOCATION: util/template_utils.py:99-105
+                    QUALIFIED: util.template_utils._region_gap
+                └── _region_gap(rb, eb)
+                    LOCATION: util/template_utils.py:99-105
+                    QUALIFIED: util.template_utils._region_gap
+                └── _region_gap(rb, eb)
+                    LOCATION: util/template_utils.py:99-105
+                    QUALIFIED: util.template_utils._region_gap
+                └── _closest_above(rb, elements, median_text_h)
+                    LOCATION: util/template_utils.py:230-267
+                    QUALIFIED: util.template_utils._closest_above
+                    └── _label_is_field_label(text)
+                        LOCATION: util/template_utils.py:35-53
+                        QUALIFIED: util.template_utils._label_is_field_label
+                    └── _region_gap(rb, eb)
+                        LOCATION: util/template_utils.py:99-105
+                        QUALIFIED: util.template_utils._region_gap
+                └── _is_label_row_member(el, elements, median_text_h)
+                    LOCATION: util/template_utils.py:108-140
+                    QUALIFIED: util.template_utils._is_label_row_member
+                └── _is_attached_word(lb, rb, mh)
+                    LOCATION: util/template_utils.py:143-161
+                    QUALIFIED: util.template_utils._is_attached_word
+            └── _label_for_region(region, elements, median_text_h, exclude_texts)
+                LOCATION: util/template_utils.py:270-465
+                QUALIFIED: util.template_utils._label_for_region
+                └── _find_straddle_prefix(region, elements, median_text_h, tol)
+                    LOCATION: util/template_utils.py:164-227
+                    QUALIFIED: util.template_utils._find_straddle_prefix
+                └── _region_gap(rb, eb)
+                    LOCATION: util/template_utils.py:99-105
+                    QUALIFIED: util.template_utils._region_gap
+                └── _region_gap(rb, eb)
+                    LOCATION: util/template_utils.py:99-105
+                    QUALIFIED: util.template_utils._region_gap
+                └── _region_gap(rb, eb)
+                    LOCATION: util/template_utils.py:99-105
+                    QUALIFIED: util.template_utils._region_gap
+                └── _region_gap(rb, eb)
+                    LOCATION: util/template_utils.py:99-105
+                    QUALIFIED: util.template_utils._region_gap
+                └── _closest_above(rb, elements, median_text_h)
+                    LOCATION: util/template_utils.py:230-267
+                    QUALIFIED: util.template_utils._closest_above
+                    └── _label_is_field_label(text)
+                        LOCATION: util/template_utils.py:35-53
+                        QUALIFIED: util.template_utils._label_is_field_label
+                    └── _region_gap(rb, eb)
+                        LOCATION: util/template_utils.py:99-105
+                        QUALIFIED: util.template_utils._region_gap
+                └── _is_label_row_member(el, elements, median_text_h)
+                    LOCATION: util/template_utils.py:108-140
+                    QUALIFIED: util.template_utils._is_label_row_member
+                └── _is_attached_word(lb, rb, mh)
+                    LOCATION: util/template_utils.py:143-161
+                    QUALIFIED: util.template_utils._is_attached_word
+            └── _grid_cell_is_container(region, input_regions, elements, median_text_h)
+                LOCATION: util/template_utils.py:517-541
+                QUALIFIED: util.template_utils._grid_cell_is_container
+                └── _inter_ratio(a, b)
+                    LOCATION: util/template_utils.py:479-487
+                    QUALIFIED: util.template_utils._inter_ratio
+                └── _region_is_real_field(region, elements, median_text_h)
+                    LOCATION: util/template_utils.py:502-514
+                    QUALIFIED: util.template_utils._region_is_real_field
+                    └── _label_for_region(region, elements, median_text_h, exclude_texts)
+                        LOCATION: util/template_utils.py:270-465
+                        QUALIFIED: util.template_utils._label_for_region
+                        └── _find_straddle_prefix(region, elements, median_text_h, tol)
+                            LOCATION: util/template_utils.py:164-227
+                            QUALIFIED: util.template_utils._find_straddle_prefix
+                        └── _region_gap(rb, eb)
+                            LOCATION: util/template_utils.py:99-105
+                            QUALIFIED: util.template_utils._region_gap
+                        └── _region_gap(rb, eb)
+                            LOCATION: util/template_utils.py:99-105
+                            QUALIFIED: util.template_utils._region_gap
+                        └── _region_gap(rb, eb)
+                            LOCATION: util/template_utils.py:99-105
+                            QUALIFIED: util.template_utils._region_gap
+                        └── _region_gap(rb, eb)
+                            LOCATION: util/template_utils.py:99-105
+                            QUALIFIED: util.template_utils._region_gap
+                        └── _closest_above(rb, elements, median_text_h)
+                            LOCATION: util/template_utils.py:230-267
+                            QUALIFIED: util.template_utils._closest_above
+                            └── _label_is_field_label(text)
+                                LOCATION: util/template_utils.py:35-53
+                                QUALIFIED: util.template_utils._label_is_field_label
+                            └── _region_gap(rb, eb)
+                                LOCATION: util/template_utils.py:99-105
+                                QUALIFIED: util.template_utils._region_gap
+                        └── _is_label_row_member(el, elements, median_text_h)
+                            LOCATION: util/template_utils.py:108-140
+                            QUALIFIED: util.template_utils._is_label_row_member
+                        └── _is_attached_word(lb, rb, mh)
+                            LOCATION: util/template_utils.py:143-161
+                            QUALIFIED: util.template_utils._is_attached_word
+                    └── _label_is_field_label(text)
+                        LOCATION: util/template_utils.py:35-53
+                        QUALIFIED: util.template_utils._label_is_field_label
+            └── _label_is_field_label(text)
+                LOCATION: util/template_utils.py:35-53
+                QUALIFIED: util.template_utils._label_is_field_label
+            └── _norm_label(text)
+                LOCATION: util/template_utils.py:25-32
+                QUALIFIED: util.template_utils._norm_label
+            └── _norm_label(text)
+                LOCATION: util/template_utils.py:25-32
+                QUALIFIED: util.template_utils._norm_label
+            └── _left_field_label(rb, elements, median_text_h, exclude_text)
+                LOCATION: util/template_utils.py:544-584
+                QUALIFIED: util.template_utils._left_field_label
+                └── _label_is_field_label(text)
+                    LOCATION: util/template_utils.py:35-53
+                    QUALIFIED: util.template_utils._label_is_field_label
+            └── _union_bbox(boxes)
+                LOCATION: util/template_utils.py:490-499
+                QUALIFIED: util.template_utils._union_bbox
+            └── _find_parenthetical_annotations(boxes, label_bbox, elements, median_text_h)
+                LOCATION: util/template_utils.py:587-620
+                QUALIFIED: util.template_utils._find_parenthetical_annotations
+                └── _iou(a, b)
+                    LOCATION: util/template_utils.py:468-476
+                    QUALIFIED: util.template_utils._iou
+            └── _union_bbox(boxes)
+                LOCATION: util/template_utils.py:490-499
+                QUALIFIED: util.template_utils._union_bbox
+            └── _region_contains_foreign_text(boxes, label_bbox, elements, ignore_bboxes, median_text_h)
+                LOCATION: util/template_utils.py:623-682
+                QUALIFIED: util.template_utils._region_contains_foreign_text
+                └── _iou(a, b)
+                    LOCATION: util/template_utils.py:468-476
+                    QUALIFIED: util.template_utils._iou
+                └── _iou(a, b)
+                    LOCATION: util/template_utils.py:468-476
+                    QUALIFIED: util.template_utils._iou
+            └── _norm_label(text)
+                LOCATION: util/template_utils.py:25-32
+                QUALIFIED: util.template_utils._norm_label
+            └── _label_for_region(region, elements, median_text_h, exclude_texts)
+                LOCATION: util/template_utils.py:270-465
+                QUALIFIED: util.template_utils._label_for_region
+                └── _find_straddle_prefix(region, elements, median_text_h, tol)
+                    LOCATION: util/template_utils.py:164-227
+                    QUALIFIED: util.template_utils._find_straddle_prefix
+                └── _region_gap(rb, eb)
+                    LOCATION: util/template_utils.py:99-105
+                    QUALIFIED: util.template_utils._region_gap
+                └── _region_gap(rb, eb)
+                    LOCATION: util/template_utils.py:99-105
+                    QUALIFIED: util.template_utils._region_gap
+                └── _region_gap(rb, eb)
+                    LOCATION: util/template_utils.py:99-105
+                    QUALIFIED: util.template_utils._region_gap
+                └── _region_gap(rb, eb)
+                    LOCATION: util/template_utils.py:99-105
+                    QUALIFIED: util.template_utils._region_gap
+                └── _closest_above(rb, elements, median_text_h)
+                    LOCATION: util/template_utils.py:230-267
+                    QUALIFIED: util.template_utils._closest_above
+                    └── _label_is_field_label(text)
+                        LOCATION: util/template_utils.py:35-53
+                        QUALIFIED: util.template_utils._label_is_field_label
+                    └── _region_gap(rb, eb)
+                        LOCATION: util/template_utils.py:99-105
+                        QUALIFIED: util.template_utils._region_gap
+                └── _is_label_row_member(el, elements, median_text_h)
+                    LOCATION: util/template_utils.py:108-140
+                    QUALIFIED: util.template_utils._is_label_row_member
+                └── _is_attached_word(lb, rb, mh)
+                    LOCATION: util/template_utils.py:143-161
+                    QUALIFIED: util.template_utils._is_attached_word
+            └── _label_is_field_label(text)
+                LOCATION: util/template_utils.py:35-53
+                QUALIFIED: util.template_utils._label_is_field_label
+            └── _norm_label(text)
+                LOCATION: util/template_utils.py:25-32
+                QUALIFIED: util.template_utils._norm_label
+            └── _iou(a, b)
+                LOCATION: util/template_utils.py:468-476
+                QUALIFIED: util.template_utils._iou
+        └── build_template_tables(doc_rep, image_width, image_height)
+            LOCATION: util/template_utils.py:1093-1160
+            QUALIFIED: util.template_utils.build_template_tables
+        └── save_template(template)
+            LOCATION: service/template_service.py:81-94
+            QUALIFIED: service.template_service.save_template
+            └── _template_path(template_id)
+                LOCATION: service/template_service.py:73-74
+                QUALIFIED: service.template_service._template_path
+                └── _templates_dir()
+                    LOCATION: service/template_service.py:68-70
+                    QUALIFIED: service.template_service._templates_dir
+            └── _reference_path(template_id)
+                LOCATION: service/template_service.py:77-78
+                QUALIFIED: service.template_service._reference_path
+                └── _templates_dir()
+                    LOCATION: service/template_service.py:68-70
+                    QUALIFIED: service.template_service._templates_dir
+
+└── extract_filled_endpoint(image, template_id)
+    LOCATION: main.py:347-365
+    QUALIFIED: main.extract_filled_endpoint
+    DECORATORS: app.post('/extract-filled')
+    └── _save_upload(image)
+        LOCATION: main.py:299-306
+        QUALIFIED: main._save_upload
+    └── load_template(template_id, with_reference)
+        LOCATION: service/template_service.py:97-107
+        QUALIFIED: service.template_service.load_template
+        └── _template_path(template_id)
+            LOCATION: service/template_service.py:73-74
+            QUALIFIED: service.template_service._template_path
+            └── _templates_dir()
+                LOCATION: service/template_service.py:68-70
+                QUALIFIED: service.template_service._templates_dir
+        └── _reference_path(template_id)
+            LOCATION: service/template_service.py:77-78
+            QUALIFIED: service.template_service._reference_path
+            └── _templates_dir()
+                LOCATION: service/template_service.py:68-70
+                QUALIFIED: service.template_service._templates_dir
+    └── extract_filled(template, image_path)
+        LOCATION: service/template_service.py:201-317
+        QUALIFIED: service.template_service.extract_filled
+        └── preprocess_document(image_or_path, output_path)
+            LOCATION: service/document_service.py:302-357
+            QUALIFIED: service.document_service.preprocess_document
+            └── _load_image(image_or_path)
+                LOCATION: util/image_utils.py:4-10
+                QUALIFIED: util.image_utils._load_image
+            └── correct_perspective(image)
+                LOCATION: util/perspective_utils.py:249-357
+                QUALIFIED: util.perspective_utils.correct_perspective
+                └── detect_document_corners(gray)
+                    LOCATION: util/perspective_utils.py:103-173
+                    QUALIFIED: util.perspective_utils.detect_document_corners
+                    └── _quadrilateral_corners(mask)
+                        LOCATION: util/perspective_utils.py:48-93
+                        QUALIFIED: util.perspective_utils._quadrilateral_corners
+                        └── _order_corners(corners)
+                            LOCATION: util/perspective_utils.py:25-45
+                            QUALIFIED: util.perspective_utils._order_corners
+                        └── _order_corners(corners)
+                            LOCATION: util/perspective_utils.py:25-45
+                            QUALIFIED: util.perspective_utils._order_corners
+                        └── _order_corners(corners)
+                            LOCATION: util/perspective_utils.py:25-45
+                            QUALIFIED: util.perspective_utils._order_corners
+                    └── _corner_lines_fallback(gray)
+                        LOCATION: util/perspective_utils.py:176-232
+                        QUALIFIED: util.perspective_utils._corner_lines_fallback
+                        └── slope(seg)
+                            LOCATION: util/perspective_utils.py:200-205
+                            QUALIFIED: util.perspective_utils.slope
+                        └── slope(seg)
+                            LOCATION: util/perspective_utils.py:200-205
+                            QUALIFIED: util.perspective_utils.slope
+                        └── _line_intersection(seg_a, seg_b)
+                            LOCATION: util/perspective_utils.py:235-246
+                            QUALIFIED: util.perspective_utils._line_intersection
+                        └── _line_intersection(seg_a, seg_b)
+                            LOCATION: util/perspective_utils.py:235-246
+                            QUALIFIED: util.perspective_utils._line_intersection
+                        └── _line_intersection(seg_a, seg_b)
+                            LOCATION: util/perspective_utils.py:235-246
+                            QUALIFIED: util.perspective_utils._line_intersection
+                        └── _line_intersection(seg_a, seg_b)
+                            LOCATION: util/perspective_utils.py:235-246
+                            QUALIFIED: util.perspective_utils._line_intersection
+                        └── _order_corners(corners)
+                            LOCATION: util/perspective_utils.py:25-45
+                            QUALIFIED: util.perspective_utils._order_corners
+                    └── _mask_area_ratio(mask)
+                        LOCATION: util/perspective_utils.py:96-100
+                        QUALIFIED: util.perspective_utils._mask_area_ratio
+                └── _dist(a, b)
+                    LOCATION: util/perspective_utils.py:310-311
+                    QUALIFIED: util.perspective_utils._dist
+                └── _dist(a, b)
+                    LOCATION: util/perspective_utils.py:310-311
+                    QUALIFIED: util.perspective_utils._dist
+                └── _dist(a, b)
+                    LOCATION: util/perspective_utils.py:310-311
+                    QUALIFIED: util.perspective_utils._dist
+                └── _dist(a, b)
+                    LOCATION: util/perspective_utils.py:310-311
+                    QUALIFIED: util.perspective_utils._dist
+            └── _get_orientation_model()
+                LOCATION: util/ocr_model_utils.py:15-18
+                QUALIFIED: util.ocr_model_utils._get_orientation_model
+                DECORATORS: lru_cache(maxsize=1)
+            └── _estimate_skew(image_or_path)
+                LOCATION: util/image_utils.py:42-61
+                QUALIFIED: util.image_utils._estimate_skew
+                └── _load_gray(image_or_path)
+                    LOCATION: util/image_utils.py:13-17
+                    QUALIFIED: util.image_utils._load_gray
+                    └── _load_image(image_or_path)
+                        LOCATION: util/image_utils.py:4-10
+                        QUALIFIED: util.image_utils._load_image
+            └── _rotate_image(image, angle)
+                LOCATION: util/image_utils.py:19-39
+                QUALIFIED: util.image_utils._rotate_image
+        └── build_document_representation(image, image_path)
+            LOCATION: service/document_service.py:52-214
+            QUALIFIED: service.document_service.build_document_representation
+            └── _load_image(image_or_path)
+                LOCATION: util/image_utils.py:4-10
+                QUALIFIED: util.image_utils._load_image
+            └── get_ocr_data(image_or_path)
+                LOCATION: service/ocr_service.py:27-100
+                QUALIFIED: service.ocr_service.get_ocr_data
+                └── _get_ocr_engine()
+                    LOCATION: util/ocr_model_utils.py:5-11
+                    QUALIFIED: util.ocr_model_utils._get_ocr_engine
+                    DECORATORS: lru_cache(maxsize=1)
+                └── _quad_to_bbox(points)
+                    LOCATION: service/ocr_service.py:19-24
+                    QUALIFIED: service.ocr_service._quad_to_bbox
+                └── _quad_to_bbox(points)
+                    LOCATION: service/ocr_service.py:19-24
+                    QUALIFIED: service.ocr_service._quad_to_bbox
+            └── detect_checkboxes_ocr_anchored(image_or_path, raw_elements)
+                LOCATION: service/detection_service.py:294-322
+                QUALIFIED: service.detection_service.detect_checkboxes_ocr_anchored
+                └── detect_checkboxes_visual(image, ocr_elements, options)
+                    LOCATION: util/checkbox_utils.py:98-182
+                    QUALIFIED: util.checkbox_utils.detect_checkboxes_visual
+                    └── _load_gray(image_or_path)
+                        LOCATION: util/image_utils.py:13-17
+                        QUALIFIED: util.image_utils._load_gray
+                        └── _load_image(image_or_path)
+                            LOCATION: util/image_utils.py:4-10
+                            QUALIFIED: util.image_utils._load_image
+                    └── _threshold_gray(gray)
+                        LOCATION: util/image_utils.py:63-71
+                        QUALIFIED: util.image_utils._threshold_gray
+                    └── _classify_window(bin_img, x1, y1, x2, y2)
+                        LOCATION: util/checkbox_utils.py:28-43
+                        QUALIFIED: util.checkbox_utils._classify_window
+                    └── _looks_like_box_window(edge_dark, inner_dark, box_w, box_h)
+                        LOCATION: util/checkbox_utils.py:71-83
+                        QUALIFIED: util.checkbox_utils._looks_like_box_window
+                    └── _neighbor_text_overlap(bin_img, win, min_ink_cols)
+                        LOCATION: util/checkbox_utils.py:86-95
+                        QUALIFIED: util.checkbox_utils._neighbor_text_overlap
+                    └── _mark_kind(bin_img, bbox)
+                        LOCATION: util/checkbox_utils.py:46-68
+                        QUALIFIED: util.checkbox_utils._mark_kind
+                └── checkbox_from_leading_mark(element, image)
+                    LOCATION: util/checkbox_utils.py:231-277
+                    QUALIFIED: util.checkbox_utils.checkbox_from_leading_mark
+                └── merge_checkbox_candidates(pixel_candidates, mark_candidates)
+                    LOCATION: util/checkbox_utils.py:280-305
+                    QUALIFIED: util.checkbox_utils.merge_checkbox_candidates
+            └── strip_leading_option_mark(text, has_box)
+                LOCATION: util/checkbox_utils.py:185-212
+                QUALIFIED: util.checkbox_utils.strip_leading_option_mark
+                └── _looks_like_mark_context(text)
+                    LOCATION: util/checkbox_utils.py:215-218
+                    QUALIFIED: util.checkbox_utils._looks_like_mark_context
+            └── strip_leading_option_mark(text, has_box)
+                LOCATION: util/checkbox_utils.py:185-212
+                QUALIFIED: util.checkbox_utils.strip_leading_option_mark
+                └── _looks_like_mark_context(text)
+                    LOCATION: util/checkbox_utils.py:215-218
+                    QUALIFIED: util.checkbox_utils._looks_like_mark_context
+            └── detect_and_fuse_tables(image, elements)
+                LOCATION: service/table_service.py:309-445
+                QUALIFIED: service.table_service.detect_and_fuse_tables
+                └── detect_table_candidates(image_or_gray, elements, min_area_ratio, min_width_ratio, min_height_ratio)
+                    LOCATION: util/table_utils.py:87-233
+                    QUALIFIED: util.table_utils.detect_table_candidates
+                    └── _load_gray(image_or_path)
+                        LOCATION: util/image_utils.py:13-17
+                        QUALIFIED: util.image_utils._load_gray
+                        └── _load_image(image_or_path)
+                            LOCATION: util/image_utils.py:4-10
+                            QUALIFIED: util.image_utils._load_image
+                    └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                        LOCATION: util/line_utils.py:22-90
+                        QUALIFIED: util.line_utils.detect_line_segments
+                        └── _load_gray(image_or_path)
+                            LOCATION: util/image_utils.py:13-17
+                            QUALIFIED: util.image_utils._load_gray
+                            └── _load_image(image_or_path)
+                                LOCATION: util/image_utils.py:4-10
+                                QUALIFIED: util.image_utils._load_image
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                    └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                        LOCATION: util/line_utils.py:22-90
+                        QUALIFIED: util.line_utils.detect_line_segments
+                        └── _load_gray(image_or_path)
+                            LOCATION: util/image_utils.py:13-17
+                            QUALIFIED: util.image_utils._load_gray
+                            └── _load_image(image_or_path)
+                                LOCATION: util/image_utils.py:4-10
+                                QUALIFIED: util.image_utils._load_image
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                    └── merge_collinear_horizontal(segments, y_tol, gap_tol_ratio, max_gap_px)
+                        LOCATION: util/line_utils.py:93-124
+                        QUALIFIED: util.line_utils.merge_collinear_horizontal
+                    └── merge_collinear_vertical(segments, x_tol, gap_tol_ratio, max_gap_px)
+                        LOCATION: util/line_utils.py:127-154
+                        QUALIFIED: util.line_utils.merge_collinear_vertical
+                    └── _extend_segments(segments, padding, orientation)
+                        LOCATION: util/table_utils.py:65-84
+                        QUALIFIED: util.table_utils._extend_segments
+                    └── _extend_segments(segments, padding, orientation)
+                        LOCATION: util/table_utils.py:65-84
+                        QUALIFIED: util.table_utils._extend_segments
+                    └── segments_to_mask(segments, shape, orientation, thickness)
+                        LOCATION: util/line_utils.py:157-172
+                        QUALIFIED: util.line_utils.segments_to_mask
+                    └── segments_to_mask(segments, shape, orientation, thickness)
+                        LOCATION: util/line_utils.py:157-172
+                        QUALIFIED: util.line_utils.segments_to_mask
+                    └── _segment_within(seg, bbox, orientation)
+                        LOCATION: util/table_utils.py:236-250
+                        QUALIFIED: util.table_utils._segment_within
+                    └── _segment_within(seg, bbox, orientation)
+                        LOCATION: util/table_utils.py:236-250
+                        QUALIFIED: util.table_utils._segment_within
+                    └── segment_intersections(horizontals, verticals)
+                        LOCATION: util/line_utils.py:175-191
+                        QUALIFIED: util.line_utils.segment_intersections
+                    └── _score_candidate(candidate, gray, elements)
+                        LOCATION: util/table_utils.py:412-468
+                        QUALIFIED: util.table_utils._score_candidate
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+                        └── _border_completeness(gray, bbox, sample)
+                            LOCATION: util/table_utils.py:471-502
+                            QUALIFIED: util.table_utils._border_completeness
+                        └── _point_in_bbox(point, bbox)
+                            LOCATION: util/geometry_utils.py:76-79
+                            QUALIFIED: util.geometry_utils._point_in_bbox
+                        └── _bbox_center(bbox)
+                            LOCATION: util/geometry_utils.py:6-8
+                            QUALIFIED: util.geometry_utils._bbox_center
+                    └── _merge_duplicate_candidates(candidates, iou_threshold)
+                        LOCATION: util/table_utils.py:48-63
+                        QUALIFIED: util.table_utils._merge_duplicate_candidates
+                        └── _iou(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:58-73
+                            QUALIFIED: util.geometry_utils._iou
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _grid_boundaries(candidate)
+                        LOCATION: util/table_utils.py:253-293
+                        QUALIFIED: util.table_utils._grid_boundaries
+                        └── _unique_sorted(values, tol)
+                            LOCATION: util/table_utils.py:296-301
+                            QUALIFIED: util.table_utils._unique_sorted
+                        └── _unique_sorted(values, tol)
+                            LOCATION: util/table_utils.py:296-301
+                            QUALIFIED: util.table_utils._unique_sorted
+                    └── build_cv_structure(bbox, rows, columns, verticals, horizontals)
+                        LOCATION: util/table_utils.py:304-391
+                        QUALIFIED: util.table_utils.build_cv_structure
+                        └── _vertical_edge_in_band(x, top, bottom, verticals, tol)
+                            LOCATION: util/table_utils.py:394-398
+                            QUALIFIED: util.table_utils._vertical_edge_in_band
+                        └── _horizontal_edge_in_span(y, left, right, horizontals, tol)
+                            LOCATION: util/table_utils.py:401-405
+                            QUALIFIED: util.table_utils._horizontal_edge_in_span
+                └── get_table_model_service()
+                    LOCATION: service/table_model_service.py:403-410
+                    QUALIFIED: service.table_model_service.get_table_model_service
+                └── _iou(bbox_a, bbox_b)
+                    LOCATION: util/geometry_utils.py:58-73
+                    QUALIFIED: util.geometry_utils._iou
+                    └── _bbox_intersection(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:11-20
+                        QUALIFIED: util.geometry_utils._bbox_intersection
+                └── _is_single_column_stack(cv_candidate)
+                    LOCATION: service/table_service.py:710-723
+                    QUALIFIED: service.table_service._is_single_column_stack
+                └── detect_vertical_lines(image_or_path, min_height_ratio)
+                    LOCATION: service/detection_service.py:264-291
+                    QUALIFIED: service.detection_service.detect_vertical_lines
+                    └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                        LOCATION: util/line_utils.py:22-90
+                        QUALIFIED: util.line_utils.detect_line_segments
+                        └── _load_gray(image_or_path)
+                            LOCATION: util/image_utils.py:13-17
+                            QUALIFIED: util.image_utils._load_gray
+                            └── _load_image(image_or_path)
+                                LOCATION: util/image_utils.py:4-10
+                                QUALIFIED: util.image_utils._load_image
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                    └── merge_collinear_vertical(segments, x_tol, gap_tol_ratio, max_gap_px)
+                        LOCATION: util/line_utils.py:127-154
+                        QUALIFIED: util.line_utils.merge_collinear_vertical
+                └── _clamp_bbox(bbox, width, height)
+                    LOCATION: service/table_service.py:696-702
+                    QUALIFIED: service.table_service._clamp_bbox
+                └── _is_single_column_stack(cv_candidate)
+                    LOCATION: service/table_service.py:710-723
+                    QUALIFIED: service.table_service._is_single_column_stack
+                └── detect_vertical_lines(image_or_path, min_height_ratio)
+                    LOCATION: service/detection_service.py:264-291
+                    QUALIFIED: service.detection_service.detect_vertical_lines
+                    └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                        LOCATION: util/line_utils.py:22-90
+                        QUALIFIED: util.line_utils.detect_line_segments
+                        └── _load_gray(image_or_path)
+                            LOCATION: util/image_utils.py:13-17
+                            QUALIFIED: util.image_utils._load_gray
+                            └── _load_image(image_or_path)
+                                LOCATION: util/image_utils.py:4-10
+                                QUALIFIED: util.image_utils._load_image
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                    └── merge_collinear_vertical(segments, x_tol, gap_tol_ratio, max_gap_px)
+                        LOCATION: util/line_utils.py:127-154
+                        QUALIFIED: util.line_utils.merge_collinear_vertical
+                └── _clamp_bbox(bbox, width, height)
+                    LOCATION: service/table_service.py:696-702
+                    QUALIFIED: service.table_service._clamp_bbox
+            └── _iou(bbox_a, bbox_b)
+                LOCATION: util/geometry_utils.py:58-73
+                QUALIFIED: util.geometry_utils._iou
+                └── _bbox_intersection(bbox_a, bbox_b)
+                    LOCATION: util/geometry_utils.py:11-20
+                    QUALIFIED: util.geometry_utils._bbox_intersection
+            └── detect_checkbox_groups(image_or_gray, elements, median_text_h, exclude_bboxes, min_options)
+                LOCATION: util/checkbox_group_utils.py:620-711
+                QUALIFIED: util.checkbox_group_utils.detect_checkbox_groups
+                └── _load_gray(image_or_path)
+                    LOCATION: util/image_utils.py:13-17
+                    QUALIFIED: util.image_utils._load_gray
+                    └── _load_image(image_or_path)
+                        LOCATION: util/image_utils.py:4-10
+                        QUALIFIED: util.image_utils._load_image
+                └── _checkbox_candidates(gray, elements, median_text_h, exclude_bboxes)
+                    LOCATION: util/checkbox_group_utils.py:270-394
+                    QUALIFIED: util.checkbox_group_utils._checkbox_candidates
+                    └── _threshold_gray(gray)
+                        LOCATION: util/image_utils.py:63-71
+                        QUALIFIED: util.image_utils._threshold_gray
+                    └── _checkbox_scale(median_text_h)
+                        LOCATION: util/checkbox_group_utils.py:134-148
+                        QUALIFIED: util.checkbox_group_utils._checkbox_scale
+                    └── _grid_line_masks(bin_img, min_len)
+                        LOCATION: util/checkbox_group_utils.py:151-166
+                        QUALIFIED: util.checkbox_group_utils._grid_line_masks
+                    └── _accept(x, y, cw, ch)
+                        LOCATION: util/checkbox_group_utils.py:320-345
+                        QUALIFIED: util.checkbox_group_utils._accept
+                        └── _is_selection_box(bin_img, x, y, w, h)
+                            LOCATION: util/checkbox_group_utils.py:233-267
+                            QUALIFIED: util.checkbox_group_utils._is_selection_box
+                            └── _ring_density(bin_img, x1, y1, x2, y2, band_frac)
+                                LOCATION: util/checkbox_group_utils.py:69-95
+                                QUALIFIED: util.checkbox_group_utils._ring_density
+                            └── _classify_window(bin_img, x1, y1, x2, y2)
+                                LOCATION: util/checkbox_utils.py:28-43
+                                QUALIFIED: util.checkbox_utils._classify_window
+                            └── _ring_side_darkness(bin_img, x1, y1, x2, y2, band_frac)
+                                LOCATION: util/checkbox_group_utils.py:98-127
+                                QUALIFIED: util.checkbox_group_utils._ring_side_darkness
+                        └── _has_inner_word(box, elements)
+                            LOCATION: util/checkbox_group_utils.py:217-230
+                            QUALIFIED: util.checkbox_group_utils._has_inner_word
+                        └── _is_grid_cell(box, hmask, vmask)
+                            LOCATION: util/checkbox_group_utils.py:198-214
+                            QUALIFIED: util.checkbox_group_utils._is_grid_cell
+                            └── _edge_line_fraction(mask, bbox, edge)
+                                LOCATION: util/checkbox_group_utils.py:169-195
+                                QUALIFIED: util.checkbox_group_utils._edge_line_fraction
+                            └── _edge_line_fraction(mask, bbox, edge)
+                                LOCATION: util/checkbox_group_utils.py:169-195
+                                QUALIFIED: util.checkbox_group_utils._edge_line_fraction
+                    └── _accept(x, y, cw, ch)
+                        LOCATION: util/checkbox_group_utils.py:320-345
+                        QUALIFIED: util.checkbox_group_utils._accept
+                        └── _is_selection_box(bin_img, x, y, w, h)
+                            LOCATION: util/checkbox_group_utils.py:233-267
+                            QUALIFIED: util.checkbox_group_utils._is_selection_box
+                            └── _ring_density(bin_img, x1, y1, x2, y2, band_frac)
+                                LOCATION: util/checkbox_group_utils.py:69-95
+                                QUALIFIED: util.checkbox_group_utils._ring_density
+                            └── _classify_window(bin_img, x1, y1, x2, y2)
+                                LOCATION: util/checkbox_utils.py:28-43
+                                QUALIFIED: util.checkbox_utils._classify_window
+                            └── _ring_side_darkness(bin_img, x1, y1, x2, y2, band_frac)
+                                LOCATION: util/checkbox_group_utils.py:98-127
+                                QUALIFIED: util.checkbox_group_utils._ring_side_darkness
+                        └── _has_inner_word(box, elements)
+                            LOCATION: util/checkbox_group_utils.py:217-230
+                            QUALIFIED: util.checkbox_group_utils._has_inner_word
+                        └── _is_grid_cell(box, hmask, vmask)
+                            LOCATION: util/checkbox_group_utils.py:198-214
+                            QUALIFIED: util.checkbox_group_utils._is_grid_cell
+                            └── _edge_line_fraction(mask, bbox, edge)
+                                LOCATION: util/checkbox_group_utils.py:169-195
+                                QUALIFIED: util.checkbox_group_utils._edge_line_fraction
+                            └── _edge_line_fraction(mask, bbox, edge)
+                                LOCATION: util/checkbox_group_utils.py:169-195
+                                QUALIFIED: util.checkbox_group_utils._edge_line_fraction
+                └── _bind_options(checkboxes, elements, median_text_h)
+                    LOCATION: util/checkbox_group_utils.py:410-463
+                    QUALIFIED: util.checkbox_group_utils._bind_options
+                    └── strip_leading_option_mark(text, has_box)
+                        LOCATION: util/checkbox_utils.py:185-212
+                        QUALIFIED: util.checkbox_utils.strip_leading_option_mark
+                        └── _looks_like_mark_context(text)
+                            LOCATION: util/checkbox_utils.py:215-218
+                            QUALIFIED: util.checkbox_utils._looks_like_mark_context
+                └── _cluster_options(pairs, median_text_h, page_width)
+                    LOCATION: util/checkbox_group_utils.py:470-537
+                    QUALIFIED: util.checkbox_group_utils._cluster_options
+                    └── union(a, b)
+                        LOCATION: util/checkbox_group_utils.py:510-513
+                        QUALIFIED: util.checkbox_group_utils.union
+                        └── find(x)
+                            LOCATION: util/checkbox_group_utils.py:504-508
+                            QUALIFIED: util.checkbox_group_utils.find
+                        └── find(x)
+                            LOCATION: util/checkbox_group_utils.py:504-508
+                            QUALIFIED: util.checkbox_group_utils.find
+                    └── _horizontal_edge_gap(box, text_bbox)
+                        LOCATION: util/checkbox_group_utils.py:401-407
+                        QUALIFIED: util.checkbox_group_utils._horizontal_edge_gap
+                    └── union(a, b)
+                        LOCATION: util/checkbox_group_utils.py:510-513
+                        QUALIFIED: util.checkbox_group_utils.union
+                        └── find(x)
+                            LOCATION: util/checkbox_group_utils.py:504-508
+                            QUALIFIED: util.checkbox_group_utils.find
+                        └── find(x)
+                            LOCATION: util/checkbox_group_utils.py:504-508
+                            QUALIFIED: util.checkbox_group_utils.find
+                    └── find(x)
+                        LOCATION: util/checkbox_group_utils.py:504-508
+                        QUALIFIED: util.checkbox_group_utils.find
+                └── _merge_same_question_rows(clusters, wrap_band)
+                    LOCATION: util/checkbox_group_utils.py:553-613
+                    QUALIFIED: util.checkbox_group_utils._merge_same_question_rows
+                    └── _extent(group)
+                        LOCATION: util/checkbox_group_utils.py:578-583
+                        QUALIFIED: util.checkbox_group_utils._extent
+                    └── _extent(group)
+                        LOCATION: util/checkbox_group_utils.py:578-583
+                        QUALIFIED: util.checkbox_group_utils._extent
+                    └── _extent(group)
+                        LOCATION: util/checkbox_group_utils.py:578-583
+                        QUALIFIED: util.checkbox_group_utils._extent
+                    └── _extent(group)
+                        LOCATION: util/checkbox_group_utils.py:578-583
+                        QUALIFIED: util.checkbox_group_utils._extent
+                └── _group_macro_bbox(group)
+                    LOCATION: util/checkbox_group_utils.py:540-550
+                    QUALIFIED: util.checkbox_group_utils._group_macro_bbox
+                └── _group_macro_bbox(group)
+                    LOCATION: util/checkbox_group_utils.py:540-550
+                    QUALIFIED: util.checkbox_group_utils._group_macro_bbox
+            └── process_form_fields(image, elements, table_bboxes, checkboxes, checkbox_group_bboxes)
+                LOCATION: service/field_service.py:21-64
+                QUALIFIED: service.field_service.process_form_fields
+                └── detect_input_regions(image_or_gray, elements, table_bboxes, checkboxes, checkbox_group_bboxes)
+                    LOCATION: util/form_utils.py:68-328
+                    QUALIFIED: util.form_utils.detect_input_regions
+                    └── _load_gray(image_or_path)
+                        LOCATION: util/image_utils.py:13-17
+                        QUALIFIED: util.image_utils._load_gray
+                        └── _load_image(image_or_path)
+                            LOCATION: util/image_utils.py:4-10
+                            QUALIFIED: util.image_utils._load_image
+                    └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                        LOCATION: util/line_utils.py:22-90
+                        QUALIFIED: util.line_utils.detect_line_segments
+                        └── _load_gray(image_or_path)
+                            LOCATION: util/image_utils.py:13-17
+                            QUALIFIED: util.image_utils._load_gray
+                            └── _load_image(image_or_path)
+                                LOCATION: util/image_utils.py:4-10
+                                QUALIFIED: util.image_utils._load_image
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                    └── _dedup_underline_segments(segments, y_tol, gap_tol, elements)
+                        LOCATION: util/form_utils.py:806-835
+                        QUALIFIED: util.form_utils._dedup_underline_segments
+                        └── _gap_between_lines_has_text(line_a, line_b, elements, y_tol)
+                            LOCATION: util/form_utils.py:770-803
+                            QUALIFIED: util.form_utils._gap_between_lines_has_text
+                    └── _inside_any_table(bbox, table_bboxes, overlap_ratio)
+                        LOCATION: util/form_utils.py:756-767
+                        QUALIFIED: util.form_utils._inside_any_table
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _is_field_continuation(all_segments, seg, median_text_h)
+                        LOCATION: util/form_utils.py:45-65
+                        QUALIFIED: util.form_utils._is_field_continuation
+                    └── _detect_box_regions(gray, elements, min_ratio, max_ratio)
+                        LOCATION: util/form_utils.py:356-433
+                        QUALIFIED: util.form_utils._detect_box_regions
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                        └── _box_contains_text(bbox, elements)
+                            LOCATION: util/form_utils.py:331-353
+                            QUALIFIED: util.form_utils._box_contains_text
+                        └── _iou(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:58-73
+                            QUALIFIED: util.geometry_utils._iou
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _inside_any_table(bbox, table_bboxes, overlap_ratio)
+                        LOCATION: util/form_utils.py:756-767
+                        QUALIFIED: util.form_utils._inside_any_table
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _iou(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:58-73
+                        QUALIFIED: util.geometry_utils._iou
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _intersection_over_area(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:39-49
+                        QUALIFIED: util.geometry_utils._intersection_over_area
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+                    └── _caption_for_unlabelled_box(box_bbox, elements, median_text_h)
+                        LOCATION: util/form_utils.py:1198-1231
+                        QUALIFIED: util.form_utils._caption_for_unlabelled_box
+                        └── _caption_candidates_below(bbox, elements, median_text_h, ink)
+                            LOCATION: util/form_utils.py:853-903
+                            QUALIFIED: util.form_utils._caption_candidates_below
+                    └── _is_box_container(box, all_boxes)
+                        LOCATION: util/form_utils.py:169-194
+                        QUALIFIED: util.form_utils._is_box_container
+                    └── _detect_caption_fields(gray, elements, median_text_h)
+                        LOCATION: util/form_utils.py:1010-1195
+                        QUALIFIED: util.form_utils._detect_caption_fields
+                        └── _scan_writing_rules(gray, thr, min_piece, bridge, min_len)
+                            LOCATION: util/form_utils.py:950-1007
+                            QUALIFIED: util.form_utils._scan_writing_rules
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                        └── _caption_candidates_below(bbox, elements, median_text_h, ink)
+                            LOCATION: util/form_utils.py:853-903
+                            QUALIFIED: util.form_utils._caption_candidates_below
+                        └── ink_map_for(line_y)
+                            LOCATION: util/form_utils.py:1122-1130
+                            QUALIFIED: util.form_utils.ink_map_for
+                            └── _caption_ink_height(gray, eb, line_y, mh, thr)
+                                LOCATION: util/form_utils.py:906-947
+                                QUALIFIED: util.form_utils._caption_ink_height
+                        └── text_above(line_y, line_x1, line_x2)
+                            LOCATION: util/form_utils.py:1092-1112
+                            QUALIFIED: util.form_utils.text_above
+                        └── box_header_line(line_y, line_x1, line_x2, cap)
+                            LOCATION: util/form_utils.py:1068-1090
+                            QUALIFIED: util.form_utils.box_header_line
+                        └── box_header_line(line_y, line_x1, line_x2, cap)
+                            LOCATION: util/form_utils.py:1068-1090
+                            QUALIFIED: util.form_utils.box_header_line
+                    └── _detect_grid_cells(gray, elements, median_text_h, table_bboxes, checkbox_group_bboxes, row_rule_ratio, col_span_ratio, min_blank_ratio)
+                        LOCATION: util/form_utils.py:485-664
+                        QUALIFIED: util.form_utils._detect_grid_cells
+                        └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                            LOCATION: util/line_utils.py:22-90
+                            QUALIFIED: util.line_utils.detect_line_segments
+                            └── _load_gray(image_or_path)
+                                LOCATION: util/image_utils.py:13-17
+                                QUALIFIED: util.image_utils._load_gray
+                                └── _load_image(image_or_path)
+                                    LOCATION: util/image_utils.py:4-10
+                                    QUALIFIED: util.image_utils._load_image
+                            └── _threshold_gray(gray)
+                                LOCATION: util/image_utils.py:63-71
+                                QUALIFIED: util.image_utils._threshold_gray
+                        └── merge_collinear_horizontal(segments, y_tol, gap_tol_ratio, max_gap_px)
+                            LOCATION: util/line_utils.py:93-124
+                            QUALIFIED: util.line_utils.merge_collinear_horizontal
+                        └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                            LOCATION: util/line_utils.py:22-90
+                            QUALIFIED: util.line_utils.detect_line_segments
+                            └── _load_gray(image_or_path)
+                                LOCATION: util/image_utils.py:13-17
+                                QUALIFIED: util.image_utils._load_gray
+                                └── _load_image(image_or_path)
+                                    LOCATION: util/image_utils.py:4-10
+                                    QUALIFIED: util.image_utils._load_image
+                            └── _threshold_gray(gray)
+                                LOCATION: util/image_utils.py:63-71
+                                QUALIFIED: util.image_utils._threshold_gray
+                        └── merge_collinear_vertical(segments, x_tol, gap_tol_ratio, max_gap_px)
+                            LOCATION: util/line_utils.py:127-154
+                            QUALIFIED: util.line_utils.merge_collinear_vertical
+                        └── _inside_any_table(bbox, table_bboxes, overlap_ratio)
+                            LOCATION: util/form_utils.py:756-767
+                            QUALIFIED: util.form_utils._inside_any_table
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                        └── _intersection_over_area(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:39-49
+                            QUALIFIED: util.geometry_utils._intersection_over_area
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                        └── _cell_top_text(cell, elements, median_text_h)
+                            LOCATION: util/form_utils.py:436-482
+                            QUALIFIED: util.form_utils._cell_top_text
+                        └── _band_contains_text(top, bottom, elements)
+                            LOCATION: util/form_utils.py:667-680
+                            QUALIFIED: util.form_utils._band_contains_text
+                    └── _detect_blank_gaps(elements, gray, gap_ratio)
+                        LOCATION: util/form_utils.py:683-753
+                        QUALIFIED: util.form_utils._detect_blank_gaps
+                        └── _threshold_gray(gray)
+                            LOCATION: util/image_utils.py:63-71
+                            QUALIFIED: util.image_utils._threshold_gray
+                    └── _inside_any_table(bbox, table_bboxes, overlap_ratio)
+                        LOCATION: util/form_utils.py:756-767
+                        QUALIFIED: util.form_utils._inside_any_table
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _iou(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:58-73
+                        QUALIFIED: util.geometry_utils._iou
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                    └── _intersection_over_area(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:39-49
+                        QUALIFIED: util.geometry_utils._intersection_over_area
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+                    └── _iou(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:58-73
+                        QUALIFIED: util.geometry_utils._iou
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                └── split_compound_elements(elements, input_regions)
+                    LOCATION: util/form_utils.py:1795-1816
+                    QUALIFIED: util.form_utils.split_compound_elements
+                    └── split_compound_ocr_element(element, input_regions, min_region_overlap)
+                        LOCATION: util/form_utils.py:1373-1522
+                        QUALIFIED: util.form_utils.split_compound_ocr_element
+                        └── _token_boxes(element)
+                            LOCATION: util/form_utils.py:1238-1292
+                            QUALIFIED: util.form_utils._token_boxes
+                        └── _token_region_window(token, region)
+                            LOCATION: util/form_utils.py:1338-1370
+                            QUALIFIED: util.form_utils._token_region_window
+                            └── _region_line_cy(region)
+                                LOCATION: util/form_utils.py:1295-1298
+                                QUALIFIED: util.form_utils._region_line_cy
+                            └── _value_baseline_band(region)
+                                LOCATION: util/form_utils.py:1301-1305
+                                QUALIFIED: util.form_utils._value_baseline_band
+                            └── _bbox_center(bbox)
+                                LOCATION: util/geometry_utils.py:6-8
+                                QUALIFIED: util.geometry_utils._bbox_center
+                            └── _point_in_bbox(point, bbox)
+                                LOCATION: util/geometry_utils.py:76-79
+                                QUALIFIED: util.geometry_utils._point_in_bbox
+                        └── _bbox_center(bbox)
+                            LOCATION: util/geometry_utils.py:6-8
+                            QUALIFIED: util.geometry_utils._bbox_center
+                        └── _token_region_window(token, region)
+                            LOCATION: util/form_utils.py:1338-1370
+                            QUALIFIED: util.form_utils._token_region_window
+                            └── _region_line_cy(region)
+                                LOCATION: util/form_utils.py:1295-1298
+                                QUALIFIED: util.form_utils._region_line_cy
+                            └── _value_baseline_band(region)
+                                LOCATION: util/form_utils.py:1301-1305
+                                QUALIFIED: util.form_utils._value_baseline_band
+                            └── _bbox_center(bbox)
+                                LOCATION: util/geometry_utils.py:6-8
+                                QUALIFIED: util.geometry_utils._bbox_center
+                            └── _point_in_bbox(point, bbox)
+                                LOCATION: util/geometry_utils.py:76-79
+                                QUALIFIED: util.geometry_utils._point_in_bbox
+                        └── _intersection_over_area(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:39-49
+                            QUALIFIED: util.geometry_utils._intersection_over_area
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                        └── _region_line_cy(region)
+                            LOCATION: util/form_utils.py:1295-1298
+                            QUALIFIED: util.form_utils._region_line_cy
+                        └── _union_bbox(bboxes)
+                            LOCATION: util/geometry_utils.py:100-105
+                            QUALIFIED: util.geometry_utils._union_bbox
+                        └── _region_suffix(region_id)
+                            LOCATION: util/form_utils.py:1525-1529
+                            QUALIFIED: util.form_utils._region_suffix
+                        └── _bbox_center(bbox)
+                            LOCATION: util/geometry_utils.py:6-8
+                            QUALIFIED: util.geometry_utils._bbox_center
+                        └── _union_bbox(bboxes)
+                            LOCATION: util/geometry_utils.py:100-105
+                            QUALIFIED: util.geometry_utils._union_bbox
+                        └── _bbox_center(bbox)
+                            LOCATION: util/geometry_utils.py:6-8
+                            QUALIFIED: util.geometry_utils._bbox_center
+                └── build_form_fields(elements, input_regions)
+                    LOCATION: util/form_utils.py:1683-1792
+                    QUALIFIED: util.form_utils.build_form_fields
+                    └── assign_ocr_to_input_regions(elements, input_regions)
+                        LOCATION: util/form_utils.py:1532-1619
+                        QUALIFIED: util.form_utils.assign_ocr_to_input_regions
+                        └── _value_claims_region(el, region)
+                            LOCATION: util/form_utils.py:1308-1335
+                            QUALIFIED: util.form_utils._value_claims_region
+                            └── _bbox_center(bbox)
+                                LOCATION: util/geometry_utils.py:6-8
+                                QUALIFIED: util.geometry_utils._bbox_center
+                            └── _region_line_cy(region)
+                                LOCATION: util/form_utils.py:1295-1298
+                                QUALIFIED: util.form_utils._region_line_cy
+                            └── _value_baseline_band(region)
+                                LOCATION: util/form_utils.py:1301-1305
+                                QUALIFIED: util.form_utils._value_baseline_band
+                    └── _repair_date_range(text)
+                        LOCATION: util/form_utils.py:1622-1680
+                        QUALIFIED: util.form_utils._repair_date_range
+                        └── _valid(dd, mm)
+                            LOCATION: util/form_utils.py:1636-1641
+                            QUALIFIED: util.form_utils._valid
+                        └── _valid(dd, mm)
+                            LOCATION: util/form_utils.py:1636-1641
+                            QUALIFIED: util.form_utils._valid
+                        └── _valid(dd, mm)
+                            LOCATION: util/form_utils.py:1636-1641
+                            QUALIFIED: util.form_utils._valid
+                    └── _union_bbox(bboxes)
+                        LOCATION: util/geometry_utils.py:100-105
+                        QUALIFIED: util.geometry_utils._union_bbox
+                    └── _union_bbox(bboxes)
+                        LOCATION: util/geometry_utils.py:100-105
+                        QUALIFIED: util.geometry_utils._union_bbox
+            └── detect_horizontal_lines(image_or_path, min_width_ratio)
+                LOCATION: service/detection_service.py:222-261
+                QUALIFIED: service.detection_service.detect_horizontal_lines
+                └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                    LOCATION: util/line_utils.py:22-90
+                    QUALIFIED: util.line_utils.detect_line_segments
+                    └── _load_gray(image_or_path)
+                        LOCATION: util/image_utils.py:13-17
+                        QUALIFIED: util.image_utils._load_gray
+                        └── _load_image(image_or_path)
+                            LOCATION: util/image_utils.py:4-10
+                            QUALIFIED: util.image_utils._load_image
+                    └── _threshold_gray(gray)
+                        LOCATION: util/image_utils.py:63-71
+                        QUALIFIED: util.image_utils._threshold_gray
+                └── merge_collinear_horizontal(segments, y_tol, gap_tol_ratio, max_gap_px)
+                    LOCATION: util/line_utils.py:93-124
+                    QUALIFIED: util.line_utils.merge_collinear_horizontal
+            └── detect_vertical_lines(image_or_path, min_height_ratio)
+                LOCATION: service/detection_service.py:264-291
+                QUALIFIED: service.detection_service.detect_vertical_lines
+                └── detect_line_segments(image_or_gray, orientation, min_length_ratio, max_thickness, kernel_scale, connect_gap_ratio)
+                    LOCATION: util/line_utils.py:22-90
+                    QUALIFIED: util.line_utils.detect_line_segments
+                    └── _load_gray(image_or_path)
+                        LOCATION: util/image_utils.py:13-17
+                        QUALIFIED: util.image_utils._load_gray
+                        └── _load_image(image_or_path)
+                            LOCATION: util/image_utils.py:4-10
+                            QUALIFIED: util.image_utils._load_image
+                    └── _threshold_gray(gray)
+                        LOCATION: util/image_utils.py:63-71
+                        QUALIFIED: util.image_utils._threshold_gray
+                └── merge_collinear_vertical(segments, x_tol, gap_tol_ratio, max_gap_px)
+                    LOCATION: util/line_utils.py:127-154
+                    QUALIFIED: util.line_utils.merge_collinear_vertical
+            └── detect_rectangular_regions(image_or_path, min_area_ratio)
+                LOCATION: service/detection_service.py:26-105
+                QUALIFIED: service.detection_service.detect_rectangular_regions
+                └── _load_gray(image_or_path)
+                    LOCATION: util/image_utils.py:13-17
+                    QUALIFIED: util.image_utils._load_gray
+                    └── _load_image(image_or_path)
+                        LOCATION: util/image_utils.py:4-10
+                        QUALIFIED: util.image_utils._load_image
+                └── _threshold_gray(gray)
+                    LOCATION: util/image_utils.py:63-71
+                    QUALIFIED: util.image_utils._threshold_gray
+                └── _iou(bbox_a, bbox_b)
+                    LOCATION: util/geometry_utils.py:58-73
+                    QUALIFIED: util.geometry_utils._iou
+                    └── _bbox_intersection(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:11-20
+                        QUALIFIED: util.geometry_utils._bbox_intersection
+            └── finalize_tables(fused, doc_rep, image)
+                LOCATION: service/table_service.py:621-693
+                QUALIFIED: service.table_service.finalize_tables
+                └── _iou(bbox_a, bbox_b)
+                    LOCATION: util/geometry_utils.py:58-73
+                    QUALIFIED: util.geometry_utils._iou
+                    └── _bbox_intersection(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:11-20
+                        QUALIFIED: util.geometry_utils._bbox_intersection
+                └── _drop_edge_slivers(cells)
+                    LOCATION: service/table_service.py:747-807
+                    QUALIFIED: service.table_service._drop_edge_slivers
+                └── _assign_ocr_to_cells(elements, cells, table_bbox)
+                    LOCATION: service/table_service.py:157-267
+                    QUALIFIED: service.table_service._assign_ocr_to_cells
+                    └── _bbox_center(bbox)
+                        LOCATION: util/geometry_utils.py:6-8
+                        QUALIFIED: util.geometry_utils._bbox_center
+                    └── _bbox_center(bbox)
+                        LOCATION: util/geometry_utils.py:6-8
+                        QUALIFIED: util.geometry_utils._bbox_center
+                    └── _bbox_center(bbox)
+                        LOCATION: util/geometry_utils.py:6-8
+                        QUALIFIED: util.geometry_utils._bbox_center
+                    └── _cell_for_point(cells, point)
+                        LOCATION: service/table_service.py:270-278
+                        QUALIFIED: service.table_service._cell_for_point
+                        └── _point_in_bbox(point, bbox)
+                            LOCATION: util/geometry_utils.py:76-79
+                            QUALIFIED: util.geometry_utils._point_in_bbox
+                        └── _area(bbox)
+                            LOCATION: service/table_service.py:292-294
+                            QUALIFIED: service.table_service._area
+                    └── _point_in_bbox(point, bbox)
+                        LOCATION: util/geometry_utils.py:76-79
+                        QUALIFIED: util.geometry_utils._point_in_bbox
+                    └── _cell_for_ioa(cells, bbox)
+                        LOCATION: service/table_service.py:281-289
+                        QUALIFIED: service.table_service._cell_for_ioa
+                        └── _intersection_over_area(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:39-49
+                            QUALIFIED: util.geometry_utils._intersection_over_area
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                    └── _cell_for_point(cells, point)
+                        LOCATION: service/table_service.py:270-278
+                        QUALIFIED: service.table_service._cell_for_point
+                        └── _point_in_bbox(point, bbox)
+                            LOCATION: util/geometry_utils.py:76-79
+                            QUALIFIED: util.geometry_utils._point_in_bbox
+                        └── _area(bbox)
+                            LOCATION: service/table_service.py:292-294
+                            QUALIFIED: service.table_service._area
+                    └── _cell_for_ioa(cells, bbox)
+                        LOCATION: service/table_service.py:281-289
+                        QUALIFIED: service.table_service._cell_for_ioa
+                        └── _intersection_over_area(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:39-49
+                            QUALIFIED: util.geometry_utils._intersection_over_area
+                            └── _bbox_intersection(bbox_a, bbox_b)
+                                LOCATION: util/geometry_utils.py:11-20
+                                QUALIFIED: util.geometry_utils._bbox_intersection
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+                            └── _bbox_area(bbox)
+                                LOCATION: util/geometry_utils.py:1-3
+                                QUALIFIED: util.geometry_utils._bbox_area
+        └── estimate_transform(ref_image, filled_image)
+            LOCATION: util/alignment_utils.py:65-143
+            QUALIFIED: util.alignment_utils.estimate_transform
+            └── _preprocess(gray)
+                LOCATION: util/alignment_utils.py:34-38
+                QUALIFIED: util.alignment_utils._preprocess
+            └── _load_gray(image_or_path)
+                LOCATION: util/image_utils.py:13-17
+                QUALIFIED: util.image_utils._load_gray
+                └── _load_image(image_or_path)
+                    LOCATION: util/image_utils.py:4-10
+                    QUALIFIED: util.image_utils._load_image
+            └── _preprocess(gray)
+                LOCATION: util/alignment_utils.py:34-38
+                QUALIFIED: util.alignment_utils._preprocess
+            └── _load_gray(image_or_path)
+                LOCATION: util/image_utils.py:13-17
+                QUALIFIED: util.image_utils._load_gray
+                └── _load_image(image_or_path)
+                    LOCATION: util/image_utils.py:4-10
+                    QUALIFIED: util.image_utils._load_image
+            └── _detect_describe(gray)
+                LOCATION: util/alignment_utils.py:41-44
+                QUALIFIED: util.alignment_utils._detect_describe
+            └── _detect_describe(gray)
+                LOCATION: util/alignment_utils.py:41-44
+                QUALIFIED: util.alignment_utils._detect_describe
+            └── _match_descriptors(desc_src, desc_dst)
+                LOCATION: util/alignment_utils.py:47-62
+                QUALIFIED: util.alignment_utils._match_descriptors
+            └── _load_gray(image_or_path)
+                LOCATION: util/image_utils.py:13-17
+                QUALIFIED: util.image_utils._load_gray
+                └── _load_image(image_or_path)
+                    LOCATION: util/image_utils.py:4-10
+                    QUALIFIED: util.image_utils._load_image
+            └── _load_gray(image_or_path)
+                LOCATION: util/image_utils.py:13-17
+                QUALIFIED: util.image_utils._load_gray
+                └── _load_image(image_or_path)
+                    LOCATION: util/image_utils.py:4-10
+                    QUALIFIED: util.image_utils._load_image
+            └── _load_gray(image_or_path)
+                LOCATION: util/image_utils.py:13-17
+                QUALIFIED: util.image_utils._load_gray
+                └── _load_image(image_or_path)
+                    LOCATION: util/image_utils.py:4-10
+                    QUALIFIED: util.image_utils._load_image
+        └── _warp_element_bbox(elements, H, width)
+            LOCATION: service/template_service.py:320-366
+            QUALIFIED: service.template_service._warp_element_bbox
+        └── _extract_one(field_copy, workspace, w, h)
+            LOCATION: service/template_service.py:535-760
+            QUALIFIED: service.template_service._extract_one
+            └── _extract_checkbox_group(field_copy, workspace, w, h)
+                LOCATION: service/template_service.py:487-532
+                QUALIFIED: service.template_service._extract_checkbox_group
+                └── _threshold_gray(gray)
+                    LOCATION: util/image_utils.py:63-71
+                    QUALIFIED: util.image_utils._threshold_gray
+                └── _load_gray(image_or_path)
+                    LOCATION: util/image_utils.py:13-17
+                    QUALIFIED: util.image_utils._load_gray
+                    └── _load_image(image_or_path)
+                        LOCATION: util/image_utils.py:4-10
+                        QUALIFIED: util.image_utils._load_image
+                └── _mark_kind(bin_img, bbox)
+                    LOCATION: util/checkbox_utils.py:46-68
+                    QUALIFIED: util.checkbox_utils._mark_kind
+            └── _threshold_gray(gray)
+                LOCATION: util/image_utils.py:63-71
+                QUALIFIED: util.image_utils._threshold_gray
+            └── _mark_kind(bin_img, bbox)
+                LOCATION: util/checkbox_utils.py:46-68
+                QUALIFIED: util.checkbox_utils._mark_kind
+            └── _tokens(elem)
+                LOCATION: service/template_service.py:618-620
+                QUALIFIED: service.template_service._tokens
+            └── _center_in_region(bbox, region)
+                LOCATION: service/template_service.py:578-581
+                QUALIFIED: service.template_service._center_in_region
+            └── _excluded(token_bbox)
+                LOCATION: service/template_service.py:598-613
+                QUALIFIED: service.template_service._excluded
+                └── _overlaps_any_box(bbox, boxes)
+                    LOCATION: service/template_service.py:583-593
+                    QUALIFIED: service.template_service._overlaps_any_box
+                └── _overlaps_any_box(bbox, boxes)
+                    LOCATION: service/template_service.py:583-593
+                    QUALIFIED: service.template_service._overlaps_any_box
+                └── _center_in_region(bbox, region)
+                    LOCATION: service/template_service.py:578-581
+                    QUALIFIED: service.template_service._center_in_region
+                └── _overlaps_any_label(bbox)
+                    LOCATION: service/template_service.py:595-596
+                    QUALIFIED: service.template_service._overlaps_any_label
+                    └── _overlaps_any_box(bbox, boxes)
+                        LOCATION: service/template_service.py:583-593
+                        QUALIFIED: service.template_service._overlaps_any_box
+            └── _repair_date_range(text)
+                LOCATION: util/form_utils.py:1622-1680
+                QUALIFIED: util.form_utils._repair_date_range
+                └── _valid(dd, mm)
+                    LOCATION: util/form_utils.py:1636-1641
+                    QUALIFIED: util.form_utils._valid
+                └── _valid(dd, mm)
+                    LOCATION: util/form_utils.py:1636-1641
+                    QUALIFIED: util.form_utils._valid
+                └── _valid(dd, mm)
+                    LOCATION: util/form_utils.py:1636-1641
+                    QUALIFIED: util.form_utils._valid
+        └── _extract_template_tables(template, aligned_elements, w, h)
+            LOCATION: service/template_service.py:762-815
+            QUALIFIED: service.template_service._extract_template_tables
+            └── _assign_ocr_to_cells(elements, cells, table_bbox)
+                LOCATION: service/table_service.py:157-267
+                QUALIFIED: service.table_service._assign_ocr_to_cells
+                └── _bbox_center(bbox)
+                    LOCATION: util/geometry_utils.py:6-8
+                    QUALIFIED: util.geometry_utils._bbox_center
+                └── _bbox_center(bbox)
+                    LOCATION: util/geometry_utils.py:6-8
+                    QUALIFIED: util.geometry_utils._bbox_center
+                └── _bbox_center(bbox)
+                    LOCATION: util/geometry_utils.py:6-8
+                    QUALIFIED: util.geometry_utils._bbox_center
+                └── _cell_for_point(cells, point)
+                    LOCATION: service/table_service.py:270-278
+                    QUALIFIED: service.table_service._cell_for_point
+                    └── _point_in_bbox(point, bbox)
+                        LOCATION: util/geometry_utils.py:76-79
+                        QUALIFIED: util.geometry_utils._point_in_bbox
+                    └── _area(bbox)
+                        LOCATION: service/table_service.py:292-294
+                        QUALIFIED: service.table_service._area
+                └── _point_in_bbox(point, bbox)
+                    LOCATION: util/geometry_utils.py:76-79
+                    QUALIFIED: util.geometry_utils._point_in_bbox
+                └── _cell_for_ioa(cells, bbox)
+                    LOCATION: service/table_service.py:281-289
+                    QUALIFIED: service.table_service._cell_for_ioa
+                    └── _intersection_over_area(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:39-49
+                        QUALIFIED: util.geometry_utils._intersection_over_area
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+                └── _cell_for_point(cells, point)
+                    LOCATION: service/table_service.py:270-278
+                    QUALIFIED: service.table_service._cell_for_point
+                    └── _point_in_bbox(point, bbox)
+                        LOCATION: util/geometry_utils.py:76-79
+                        QUALIFIED: util.geometry_utils._point_in_bbox
+                    └── _area(bbox)
+                        LOCATION: service/table_service.py:292-294
+                        QUALIFIED: service.table_service._area
+                └── _cell_for_ioa(cells, bbox)
+                    LOCATION: service/table_service.py:281-289
+                    QUALIFIED: service.table_service._cell_for_ioa
+                    └── _intersection_over_area(bbox_a, bbox_b)
+                        LOCATION: util/geometry_utils.py:39-49
+                        QUALIFIED: util.geometry_utils._intersection_over_area
+                        └── _bbox_intersection(bbox_a, bbox_b)
+                            LOCATION: util/geometry_utils.py:11-20
+                            QUALIFIED: util.geometry_utils._bbox_intersection
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+                        └── _bbox_area(bbox)
+                            LOCATION: util/geometry_utils.py:1-3
+                            QUALIFIED: util.geometry_utils._bbox_area
+        └── _json_safe(obj)
+            LOCATION: service/template_service.py:52-66
+            QUALIFIED: service.template_service._json_safe
+            └── _json_safe(obj)
+                LOCATION: service/template_service.py:52-66
+                QUALIFIED: service.template_service._json_safe
+                [ALREADY VISITED]
+            └── _json_safe(obj)
+                LOCATION: service/template_service.py:52-66
+                QUALIFIED: service.template_service._json_safe
+                [ALREADY VISITED]
+            └── _json_safe(obj)
+                LOCATION: service/template_service.py:52-66
+                QUALIFIED: service.template_service._json_safe
+                [ALREADY VISITED]
